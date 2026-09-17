@@ -279,9 +279,9 @@ Either path is fine: doing steps 1–3 by hand, or this one. With this path the 
 | `SUPABASE_URL` | `https://dufyzxtrhdcwrebagsfs.supabase.co` | |
 | `SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_1UHmmXOcj6uhnQJRSFKMEQ_qjOzVwJl` | |
 | `SUPABASE_REGION` | `us-east-2` | |
-| `HOSTING` | `cloudflare-pages` | `cloudflare-pages` or `github-pages`. Blank means `cloudflare-pages`. |
-| `GITHUB_REPO` | | e.g. `https://github.com/<you>/pumo-feed-log` |
-| `LIVE_URL` | | From step 7A.6 or 7B.3 |
+| `HOSTING` | `github-pages` | Repo is public; GitHub Actions set as the Pages source |
+| `GITHUB_REPO` | `https://github.com/dathanbn/pumo-feed-log` | |
+| `LIVE_URL` | `https://dathanbn.github.io/pumo-feed-log/` | |
 | `PUMO_PHOTO` | `none` | `docs/assets/pumo.jpg` or `none` |
 | `CUSTOM_ICON` | `none` | `docs/assets/icon.png` or `none` |
 
