@@ -234,7 +234,4 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6), reviewin
 4. The final message to Dathan contains:
    - LIVE_URL
    - PASS/FAIL counts, with any known issues or BLOCKED items and their exact next steps (including "merge PR #n" if the deploy fallback was used)
-   - A reminder that programming the sticker (architecture.md §7 step 9) and the DATHAN checklist in `tests/qa-report.md` are the only steps leftagentId: a384cd4ebff98efb5 (use SendMessage with to: 'a384cd4ebff98efb5', summary: '<5-10 word recap>' to continue this agent)
-<usage>subagent_tokens: 170285
-tool_uses: 15
-duration_ms: 1482166</usage>
+   - A reminder that programming the sticker (architecture.md §7 step 9) and the DATHAN checklist in `tests/qa-report.md` are the only steps left.
