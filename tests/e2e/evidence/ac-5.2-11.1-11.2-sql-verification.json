@@ -1,0 +1,53 @@
+{
+  "note": "Direct-REST checks (contract.md §6.F / AC-5.2, AC-11.1, AC-11.2) run before the frontend existed, per tasks.md §2 item 2 / orchestrator step 3.",
+  "methodology_deviation": "This sandbox's egress proxy returned 403 (organization policy denial) for dufyzxtrhdcwrebagsfs.supabase.co on every raw HTTPS attempt (curl through HTTPS_PROXY), i.e. the exact 'network allowlist' failure mode architecture.md §7 step 7.5 anticipates for a sandboxed build environment. The Supabase MCP connector (mcp__Supabase__execute_sql), which does not go through this sandbox's local egress proxy, WAS reachable and confirmed against the correct project (ref dufyzxtrhdcwrebagsfs, name 'Pumo Feeder', region us-east-2 — matches architecture.md §8). Each check below was therefore run as `set role anon; <statement>;` inside a single Supabase SQL session, which exercises the exact same column grants and RLS policies (contract.md §2) that PostgREST/the REST API enforces for the anon/publishable-key role — not a literal HTTP POST/PATCH/DELETE. Flagged as a deviation per contract.md's 'follow it anyway and note the concern; don't silently deviate.' A literal HTTP-level re-run against LIVE_URL's Supabase project is recommended once network access allows (e.g. from the orchestrator's environment), but is not expected to behave differently since the enforcement point (Postgres grants + RLS) is identical either way.",
+  "project_id": "dufyzxtrhdcwrebagsfs",
+  "project_name_confirmed": "Pumo Feeder",
+  "region_confirmed": "us-east-2",
+  "run_at": "2026-09-17T06:2x:xxZ (see individual timestamps in row data)",
+  "checks": [
+    {
+      "ac": "AC-5.2 (part 1/2 — insert with created_at)",
+      "statement": "set role anon; insert into public.feeds (logged_by, created_at) values ('QA-test-sql', now());",
+      "expected": "401/403 equivalent (permission denied), code 42501",
+      "actual": "ERROR 42501: permission denied for table feeds (HINT: Grant the required privileges ... GRANT INSERT ON public.feeds TO anon)",
+      "result": "PASS",
+      "no_row_inserted": true
+    },
+    {
+      "ac": "AC-5.2 (part 2/2 — update created_at)",
+      "setup_row_id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd",
+      "setup_statement": "set role anon; insert into public.feeds (logged_by) values ('QA-test') returning id, created_at, logged_by, deleted_at;",
+      "setup_result": { "id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd", "created_at": "2026-09-17 06:27:03.620592+00", "logged_by": "QA-test", "deleted_at": null },
+      "statement": "set role anon; update public.feeds set created_at = '2020-01-01T00:00:00Z' where id = '08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd';",
+      "expected": "401/403 equivalent (permission denied), code 42501",
+      "actual": "ERROR 42501: permission denied for table feeds (HINT: Grant the required privileges ... GRANT UPDATE ON public.feeds TO anon)",
+      "result": "PASS",
+      "verified_unchanged": "re-selected the row: created_at still 2026-09-17 06:27:03.620592+00"
+    },
+    {
+      "ac": "AC-11.2",
+      "row_id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd",
+      "statement": "set role anon; delete from public.feeds where id = '08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd';",
+      "expected": "401/403 equivalent (permission denied), code 42501, row still exists",
+      "actual": "ERROR 42501: permission denied for table feeds (HINT: Grant the required privileges ... GRANT DELETE ON public.feeds TO anon)",
+      "result": "PASS",
+      "row_still_exists": true
+    },
+    {
+      "ac": "AC-11.1",
+      "row_id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd",
+      "statement": "set role anon; update public.feeds set deleted_at = now() where id = '08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd' and deleted_at is null returning id, deleted_at;",
+      "expected": "200-equivalent success, deleted_at set, row still present in the table (soft delete only)",
+      "actual": { "id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd", "deleted_at": "2026-09-17 06:27:13.095365+00" },
+      "verification_statement": "set role anon; select id, deleted_at from public.feeds where id = '08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd' and deleted_at is not null;",
+      "verification_actual": { "id": "08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd", "deleted_at": "2026-09-17 06:27:13.095365+00" },
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "statement": "select count(*) as live_qa_rows from public.feeds where logged_by = 'QA-test' and deleted_at is null;",
+    "result": 0,
+    "note": "The one row created for these checks (id 08b7ff49-70c4-4a7c-b8b4-c26051fb4bfd, logged_by 'QA-test') ends this run soft-deleted (deleted_at set) as part of the AC-11.1 check itself. No live QA-test rows remain. The rejected insert attempt with logged_by 'QA-test-sql' never created a row at all."
+  }
+}
