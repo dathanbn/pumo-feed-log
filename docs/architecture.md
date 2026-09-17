@@ -275,10 +275,10 @@ Either path is fine: doing steps 1–3 by hand, or this one. With this path the 
 
 | Key | Value | Notes |
 |---|---|---|
-| `SUPABASE_SETUP_PATH` | `manual` | `manual` (steps 1–3) or `mcp` (step 4) |
-| `SUPABASE_URL` | | e.g. `https://abcdefghijklmnop.supabase.co`. Leave blank on the `mcp` path. |
-| `SUPABASE_PUBLISHABLE_KEY` | | `sb_publishable_…` (or a legacy `eyJ…` anon key). Leave blank on the `mcp` path. |
-| `SUPABASE_REGION` | | `mcp` path only, e.g. `us-west-1` (N. California) or `us-east-1` (N. Virginia). Blank means `us-west-1`. |
+| `SUPABASE_SETUP_PATH` | `mcp` | Project + schema created via the Supabase MCP connector |
+| `SUPABASE_URL` | `https://dufyzxtrhdcwrebagsfs.supabase.co` | |
+| `SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_1UHmmXOcj6uhnQJRSFKMEQ_qjOzVwJl` | |
+| `SUPABASE_REGION` | `us-east-2` | |
 | `HOSTING` | `cloudflare-pages` | `cloudflare-pages` or `github-pages`. Blank means `cloudflare-pages`. |
 | `GITHUB_REPO` | | e.g. `https://github.com/<you>/pumo-feed-log` |
 | `LIVE_URL` | | From step 7A.6 or 7B.3 |
