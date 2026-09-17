@@ -125,6 +125,12 @@ time, .tabular {
   gap: 16px;
 }
 
+#data-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* ---- Banner (refresh error, S4) ---------------------------------------------------------- */
 
 .banner {

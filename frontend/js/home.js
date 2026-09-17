@@ -145,13 +145,39 @@ function focusAfterDelete(targetIndex) {
   }
 }
 
+/**
+ * Removes `feed` from local state (recent list + today's count) and re-renders immediately,
+ * without waiting on a server refetch. A successful soft-delete/undo must not depend on the
+ * follow-up GET also succeeding — if that GET fails, the feed must not linger on screen, the
+ * headline/counter must already reflect the removal, and a recent-feed guard from that exact
+ * feed must already be gone (AC-10.3, AC-9.2, AC-7.8). Mirrors history.js's delete pattern.
+ * @param {{id: string, created_at: string}} feed
+ * @param {Date} now
+ */
+function applyLocalRemoval(feed, now) {
+  state.recent = state.recent.filter((f) => f.id !== feed.id);
+  if (isFeedToday(feed, now)) {
+    state.todayCount = Math.max(0, state.todayCount - 1);
+  }
+  if (['loading', 'ready', 'guarded', 'load-failed'].includes(state.button)) {
+    state.button = idleButtonFromGuard(now);
+    state.currentGuard = null;
+  }
+  renderDataBlock(now);
+  renderButtonLabel(now);
+}
+
 async function deleteFeed(id) {
   const targetIndex = state.recent.findIndex((f) => f.id === id);
+  const removedFeed = state.recent[targetIndex];
   const result = await api.softDeleteFeed(id);
   resetFailure();
+  if (removedFeed) applyLocalRemoval(removedFeed, new Date());
   announce('Feed deleted');
-  await refresh({ background: false });
   focusAfterDelete(targetIndex);
+  // Background sync only — the visible removal above already happened locally, so a failed
+  // refetch here just shows the refresh banner (S4) rather than leaving a stale feed on screen.
+  refresh({ background: true }).catch(() => {});
   return result;
 }
 
@@ -448,11 +474,13 @@ async function onUndoTap() {
     resetFailure();
     state.undo.status = 'removed';
     renderUndoNotice();
+    applyLocalRemoval(feed, new Date());
     announce('Feed removed');
     setTimeout(() => {
       if (state.undo && state.undo.status === 'removed') hideUndoNotice();
     }, REMOVED_NOTICE_MS);
-    await refresh({ background: false });
+    // Background sync only — see applyLocalRemoval's note on deleteFeed.
+    refresh({ background: true }).catch(() => {});
   } catch {
     incrementFailure();
     if (state.undo) {

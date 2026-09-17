@@ -65,19 +65,15 @@ export function errorBodyLines(err, showPausedHint) {
 // ---- Status region (one visually-hidden role="status" per page) ----------------------------
 
 /**
- * Announces `text` in the page's aria-live status region, creating it if needed.
+ * Announces `text` in the page's aria-live status region. The region must already exist in the
+ * page's HTML at load (design.md §7: "one region per page") — creating it here on first use, in
+ * the same task as the announcement, is what some screen readers drop. `announce()` only ever
+ * reuses that existing node.
  * @param {string} text
  */
 export function announce(text) {
-  let el = document.getElementById('status-region');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'status-region';
-    el.className = 'visually-hidden';
-    el.setAttribute('role', 'status');
-    el.setAttribute('aria-live', 'polite');
-    document.body.appendChild(el);
-  }
+  const el = document.getElementById('status-region');
+  if (!el) return;
   // Clear-then-set so identical consecutive messages still get announced.
   el.textContent = '';
   void el.offsetHeight;
@@ -93,7 +89,11 @@ export function announce(text) {
  */
 export function onFocusRefresh(cb) {
   let inFlight = false;
-  let lastCall = 0;
+  // Start the debounce window now, not at 0: the caller (home.js/history.js init) makes its own
+  // initial load call right around when this registers, and `pageshow` fires on every page load
+  // (not just a back-forward-cache restore) — with lastCall at 0, that first pageshow would
+  // always look "stale enough" and fire a second, redundant fetch a moment after the real one.
+  let lastCall = Date.now();
 
   const trigger = () => {
     if (inFlight) return;
@@ -113,7 +113,11 @@ export function onFocusRefresh(cb) {
     if (document.visibilityState === 'visible') trigger();
   });
   window.addEventListener('focus', trigger);
-  window.addEventListener('pageshow', trigger);
+  // A plain (non-bfcache) page load also fires pageshow — that one is always redundant with the
+  // caller's own initial load, so only a genuine back-forward-cache restore should trigger here.
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) trigger();
+  });
 }
 
 // ---- Shared feed row, with inline delete confirmation (design.md §3.6) ---------------------
