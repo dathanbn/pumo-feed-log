@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Feed history · Pumo Feed Log</title>
+<meta name="description" content="Every feed Pumo has had, grouped by day.">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#FBF7F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1A1614" media="(prefers-color-scheme: dark)">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body data-app="pumo-feed-log">
+<div class="page">
+
+  <div id="refresh-banner" class="banner" hidden></div>
+
+  <a class="back-link" href="index.html"><svg class="chevron" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg> Pumo</a>
+  <h1>Feed history</h1>
+
+  <div id="history-body" aria-busy="true"></div>
+
+  <button id="show-older" type="button" class="btn btn--outline btn--full" hidden>Show older feeds</button>
+  <p id="older-error" class="older-error" hidden></p>
+
+</div>
+<script type="module" src="js/history.js"></script>
+</body>
+</html>

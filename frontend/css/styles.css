@@ -1,0 +1,742 @@
+/* Pumo Feed Log — styles.css. Tokens, type, spacing and states from design.md §2-§7. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #FBF7F2;
+  --surface: #FFFFFF;
+  --text: #2A211C;
+  --muted: #6B5D54;
+  --border: #8C7B70;
+  --divider: #EDE4DB;
+  --accent: #0B6B66;
+  --on-accent: #FFFFFF;
+  --warn-text: #A3200F;
+  --warn-fill: #A3200F;
+  --on-warn: #FFFFFF;
+  --warn-soft: #FDECEA;
+  --pumo: #E8833A;
+
+  --font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1A1614;
+    --surface: #27211E;
+    --text: #F4EEE8;
+    --muted: #B8ABA1;
+    --border: #7A6B62;
+    --divider: #3A322E;
+    --accent: #5FC9BF;
+    --on-accent: #1A1614;
+    --warn-text: #FFA59C;
+    --warn-fill: #FF8A7F;
+    --on-warn: #1A1614;
+    --warn-soft: #3B1A16;
+    --pumo: #E8833A;
+  }
+}
+
+/* ---- Reset / base ---------------------------------------------------------------------- */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-family);
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button {
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+a {
+  color: var(--accent);
+}
+
+/* Author-origin `display` on a component class (e.g. .banner, .undo-notice, .name-card,
+   .older-error, .btn) otherwise beats the UA's default `[hidden]{display:none}`, so any
+   element we toggle with the `hidden` attribute must be forced hidden here regardless of
+   what else targets it. */
+[hidden] {
+  display: none !important;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+h1, h2, p {
+  margin: 0;
+}
+
+time, .tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- Layout ----------------------------------------------------------------------------- */
+
+.page {
+  max-width: 440px;
+  margin-inline: auto;
+  padding: 16px calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  padding-top: calc(16px + env(safe-area-inset-top));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ---- Banner (refresh error, S4) ---------------------------------------------------------- */
+
+.banner {
+  background: var(--warn-soft);
+  color: var(--warn-text);
+  border-radius: 16px;
+  padding: 12px 16px;
+  font-size: 0.9375rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banner__retry {
+  min-height: 44px;
+  min-width: 44px;
+  font-weight: 600;
+  color: var(--warn-text);
+  text-decoration: underline;
+  flex-shrink: 0;
+}
+
+/* ---- Header ------------------------------------------------------------------------------ */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid var(--pumo);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.header__text h1 {
+  font-size: 1.375rem;
+  font-weight: 700;
+}
+
+.header .tagline {
+  color: var(--muted);
+  font-size: 0.9375rem;
+  margin-top: 2px;
+}
+
+/* ---- Headline ---------------------------------------------------------------------------- */
+
+.headline__line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headline .label {
+  font-size: 1.0625rem;
+  color: var(--muted);
+}
+
+.headline .value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.headline .value.value--empty {
+  font-size: 1.5rem;
+}
+
+.headline .value.value--placeholder {
+  display: inline-block;
+  width: 60%;
+  height: 2.5rem;
+  border-radius: 10px;
+  background: var(--divider);
+}
+
+/* ---- Counter pill -------------------------------------------------------------------------- */
+
+.counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.counter.counter--warn {
+  background: var(--warn-soft);
+  border-color: transparent;
+  color: var(--warn-text);
+}
+
+.counter.counter--loading {
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  color: var(--muted);
+}
+
+.counter .icon {
+  color: var(--warn-text);
+}
+
+/* ---- Recent list / rows -------------------------------------------------------------------- */
+
+.recent__label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+  display: block;
+}
+
+.row-list {
+  background: var(--surface);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.row {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.row-list > .row:last-child {
+  border-bottom: none;
+}
+
+.row__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.row__line1 {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.row__line2 {
+  font-size: 0.9375rem;
+  color: var(--muted);
+}
+
+.row__delete {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--muted);
+}
+
+.row__delete:hover {
+  background: var(--divider);
+}
+
+.row--placeholder {
+  position: relative;
+}
+
+.row--placeholder::before,
+.row--placeholder::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--divider);
+}
+
+.row--placeholder::before { top: 15px; width: 45%; }
+.row--placeholder::after { top: 33px; width: 28%; }
+
+.recent__empty {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 18px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---- Row delete confirmation (design.md §3.6) ---------------------------------------------- */
+
+.row--confirm {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.row__confirm-text {
+  font-size: 0.9375rem;
+}
+
+.row__confirm-text--warn {
+  color: var(--warn-text);
+  font-weight: 600;
+}
+
+.row__deleting {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.row__confirm-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+/* ---- Buttons (shared) ------------------------------------------------------------------------ */
+
+.btn {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+.btn--outline {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  color: var(--text);
+}
+
+.btn--accent {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn--warn {
+  background: var(--warn-fill);
+  color: var(--on-warn);
+}
+
+.btn--warn-outline {
+  background: var(--surface);
+  border: 2px solid var(--warn-text);
+  color: var(--warn-text);
+}
+
+.btn--text {
+  background: none;
+  color: var(--accent);
+  flex: none;
+  padding: 0 8px;
+}
+
+.btn--full {
+  width: 100%;
+  flex: none;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+/* ---- Log button (design.md §3.4) -------------------------------------------------------------- */
+
+.log-button {
+  width: 100%;
+  min-height: 64px;
+  border-radius: 20px;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  transition: transform 80ms ease;
+}
+
+.log-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.log-button--loading {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.log-button--ready,
+.log-button--saving,
+.log-button--logged,
+.log-button--load-failed {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.log-button--guarded {
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+}
+
+.log-button--not-saved {
+  background: var(--warn-soft);
+  border: 2px solid var(--warn-text);
+  color: var(--warn-text);
+}
+
+.log-button--armed {
+  background: var(--warn-fill);
+  color: var(--on-warn);
+}
+
+.log-button__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--on-warn);
+  opacity: 0.55;
+  transform-origin: left;
+  animation: armed-shrink 6s linear forwards;
+}
+
+@keyframes armed-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* icon('spinner', 'spin') renders className="icon icon--spinner spin" — target the plain
+   modifier class actually produced, not a compound "icon--spin" that would never match. */
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---- Undo notice (design.md §3.5) -------------------------------------------------------------- */
+
+.undo-notice {
+  position: relative;
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 12px 16px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  overflow: hidden;
+  animation: fade-in 150ms ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.undo-notice__text {
+  font-size: 0.9375rem;
+}
+
+.undo-notice__text--warn {
+  color: var(--warn-text);
+}
+
+.undo-notice__action {
+  min-height: 44px;
+  padding: 0 10px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.undo-notice__dismiss {
+  min-height: 44px;
+  min-width: 44px;
+  color: var(--warn-text);
+  flex-shrink: 0;
+}
+
+.undo-notice__bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--accent);
+  opacity: 0.4;
+  transform-origin: left;
+  animation: undo-shrink 10s linear forwards;
+}
+
+@keyframes undo-shrink {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* ---- History link / back link ------------------------------------------------------------------ */
+
+.history-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.history-link .chevron,
+.back-link .chevron {
+  vertical-align: -3px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+/* ---- Name card (design.md §3.7) ------------------------------------------------------------------ */
+
+.name-card {
+  background: var(--surface);
+  border-radius: 16px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.name-card__title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.name-card__body {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.name-card__label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.name-card__input {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.name-card__buttons {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+/* ---- Footer -------------------------------------------------------------------------------------- */
+
+.footer {
+  color: var(--muted);
+  font-size: 0.9375rem;
+  text-align: center;
+}
+
+.footer__link {
+  color: var(--accent);
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0 4px;
+}
+
+/* ---- Error panel ---------------------------------------------------------------------------------- */
+
+.panel {
+  border-radius: 16px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel--warn {
+  background: var(--warn-soft);
+  color: var(--warn-text);
+}
+
+.panel__title {
+  font-weight: 700;
+  font-size: 1.0625rem;
+}
+
+.panel__body {
+  font-size: 0.9375rem;
+}
+
+.panel .btn {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+/* ---- History day groups ---------------------------------------------------------------------------- */
+
+.day-group {
+  margin-top: 8px;
+}
+
+.day-group__heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.day-group h2 {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.day-group__count {
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.day-group__heading-placeholder {
+  height: 1.0625rem;
+  width: 35%;
+  border-radius: 8px;
+  background: var(--divider);
+  margin-bottom: 12px;
+}
+
+.history-empty {
+  color: var(--muted);
+  padding: 12px 0;
+}
+
+.older-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--warn-text);
+  font-size: 0.9375rem;
+}
+
+/* ---- Reduced motion (design.md §2, motion) ----------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .log-button__bar,
+  .undo-notice__bar {
+    animation: none !important;
+    transform: scaleX(0);
+  }
+}
