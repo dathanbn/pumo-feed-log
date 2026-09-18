@@ -2,26 +2,29 @@
 
 Status: approved by Dathan. The build runs unattended from `docs/` and nobody will be asked anything during it. If these files seem to disagree: `contract.md` wins on data, constants and formatting rules, `design.md` wins on visuals and copy, and this file wins on behavior.
 
+**v1.1 note:** this spec now covers three pets (F17), a feeding heatmap (F18) and CSV export (F19), on top of everything v1 shipped. Every "the app"/"Pumo" reference elsewhere in this doc still applies — it just now applies per-pet, scoped by whichever pet is currently selected (F17). Where a feature is genuinely Pumo-specific (there is none left after F17), it says so explicitly.
+
 ## 1. Goal
 
-Pumo begs for food whether or not he has eaten, so the four people in the household can't tell if he has already been fed. Pumo Feed Log fixes that with one NFC sticker on his food container. Tap it with any phone and a small web page opens. The page shows when Pumo was last fed, how many times he has eaten today, and a big button that logs a feed in one tap. All four phones read and write one shared Supabase database, so everyone sees the same answer and nobody feeds him "just in case."
+Pumo begs for food whether or not he has eaten, so the four people in the household can't tell if he has already been fed. Pumo Feed Log fixes that with one NFC sticker on his food container. Tap it with any phone and a small web page opens. The page shows when Pumo was last fed, how many times he has eaten today, and a big button that logs a feed in one tap. All four phones read and write one shared Supabase database, so everyone sees the same answer and nobody feeds him "just in case." **As of v1.1**, the same app also covers Zuumi (cat) and Banh Mi (dog), each with their own sticker, own log and own guards — see F17.
 
 ## 2. Target user
 
 - **Primary:** the 4 people in Dathan's household, each with their own phone (assume a mix of iPhone and Android). Typical use: standing at the food container, scoop in hand, a 5-second tap and glance. Most visits are "has he eaten?", and some are "I'm feeding him now."
 - **Occasional:** a cat-sitter or guest who has never seen the app. They need zero setup: no account, no install, no PIN.
-- **Not for:** multiple pets, vets, or anyone who wants accounts, stats or reminders.
+- **Not for:** vets, or anyone who wants accounts, stats or reminders. (Multiple pets *are* in scope as of v1.1 — see F17 — but the household stays small and fixed: adding a pet is a manual dashboard step, not a self-serve feature.)
 
 ## 3. Terms
 
-- **Feed:** a row in `feeds` whose `deleted_at` is null.
+- **Feed:** a row in `feeds` whose `deleted_at` is null, always for exactly one **pet**.
 - **Deleted feed:** a row whose `deleted_at` is not null. The app never shows it or counts it.
-- **Today:** from 00:00 local time on the phone doing the viewing up to now.
+- **Pet:** a row in `pets` — Pumo, Zuumi or Banh Mi (contract.md §1). Every screen shows exactly one pet's data at a time, chosen by the URL (F17).
+- **Feed day (was "Today" pre-v1.1):** from 3:00 AM local time on the phone doing the viewing, up to 2:59:59 AM the next day. **The reset moved from midnight to 3 AM in v1.1** because the household sometimes feeds pets late at night, and midnight was resetting the count mid-evening. `startOfFeedDay`/`feedDayKey` in contract.md §7.6 are the exact rule; "Today" in the rest of this document (headings, counter) means the *current feed day*, not the calendar day.
 - **Recent guard:** the most recent feed was less than `RECENT_FEED_GUARD_MS` (2 hours) ago.
-- **Daily guard:** today's feed count is already at or above `DAILY_FEED_TARGET` (4).
+- **Daily guard:** today's (this feed day's) feed count for the selected pet is already at or above `DAILY_FEED_TARGET` (4).
 - **Guarded:** at least one guard applies.
 - **Armed:** the Log button after one tap while guarded. It is waiting for a confirming second tap.
-- **LIVE_URL:** the deployed app URL from the setup values table in `architecture.md`.
+- **LIVE_URL:** the deployed app URL from the setup values table in `architecture.md`. As of v1.1 this is Pumo's URL specifically (F17's default pet); Zuumi's and Banh Mi's URLs are LIVE_URL plus a query string (F17, architecture.md §10).
 - Constant names (`RECENT_FEED_GUARD_MS` and so on) are defined in `contract.md` §7.
 
 ## 4. V1 features and acceptance criteria
@@ -77,11 +80,11 @@ For time-based criteria, the QA agent may move the browser clock forward relativ
 - **AC-7.8 [QA]** Undoing or deleting the only feed from the last 2 hours removes the recent guard.
 
 ### F8. Daily count ("3 of 4 today"), fully enforced
-- **AC-8.1 [QA]** The counter reads "{n} of 4 today". n is the number of feeds whose `created_at` is at or after 00:00 today, local time on the viewing phone. With no feeds today it reads "0 of 4 today".
+- **AC-8.1 [QA]** The counter reads "{n} of 4 today". n is the number of feeds *for the selected pet* whose `created_at` is at or after the start of the current feed day (3:00 AM local, contract.md §7.6 — **not midnight, as of v1.1**), local time on the viewing phone. With no feeds today it reads "0 of 4 today".
 - **AC-8.2 [QA]** When n is 4 or more, the counter uses the warning style: warning color, a warning icon and screen-reader text ", daily limit reached". It keeps counting past 4, so a fifth feed shows "5 of 4 today". When n is 3 or less, it uses the normal style.
 - **AC-8.3 [QA]** With n = 4 and the last feed more than 2 hours old, the first tap arms the button as "4 of 4 today — log another?". The second tap logs, and the counter then reads "5 of 4 today".
 - **AC-8.4 [QA]** When both guards apply, there is one combined armed label, for example "Fed 40m ago, 4 of 4 today — log another?". Logging takes exactly 2 taps in total.
-- **AC-8.5 [QA]** The count resets at local midnight. With the clock at 00:00:30 the next day, the counter reads "0 of 4 today" and no daily guard applies. The recent guard can still apply, for example to an 11:30 PM feed. A page left open across midnight resets within 30 s. **[UNIT]** Local midnight is correct in `America/Los_Angeles`, including the DST days 2026-03-08 and 2026-11-01.
+- **AC-8.5 [QA]** The count resets at 3:00 AM local (**not midnight, as of v1.1**). With the clock at 03:00:30, the counter reads "0 of 4 today" and no daily guard applies. The recent guard can still apply, for example to a 1:30 AM feed. A page left open across the 3 AM boundary resets within 30 s. A feed logged at 1:30 AM (after midnight, before 3 AM) counts toward the *previous* feed day, and its home/history label reads "Yesterday, 1:30 AM" once the calendar date has turned over. **[UNIT]** The 3 AM boundary is correct in `America/Los_Angeles`, including the DST days 2026-03-08 and 2026-11-01, and including a feed logged between midnight and 3 AM on each.
 
 ### F9. Undo right after logging
 - **AC-9.1 [QA]** After "Logged", an undo notice appears under the button reading "Logged {time}" with an Undo button. It stays for `UNDO_WINDOW_MS` (10 s, give or take 0.5 s) and then disappears.
@@ -124,12 +127,38 @@ For time-based criteria, the QA agent may move the browser clock forward relativ
 - **AC-15.1 [QA]** A fresh browser with no stored data can view, log, undo and delete right away. No login, PIN or account screen exists anywhere.
 
 ### F16. Look and feel (details in design.md)
-- **AC-16.1 [QA]** The header shows "Pumo" plus his photo when `PUMO_PHOTO_URL` is set, or the cat-head avatar when it isn't.
+- **AC-16.1 [QA]** The header shows the selected pet's name plus its photo when `pets.photo_url` is set for that pet, or a species-appropriate placeholder avatar (design.md §3.0) when it isn't.
 - **AC-16.2 [QA]** The app follows the system light or dark setting, and switching the emulated color scheme restyles it without a reload. Every token pair meets the contrast table in `design.md` §2.
 - **AC-16.3 [QA]** At 1440×900 it shows the same single column, centered, no wider than 440 px.
 - **AC-16.4 [QA]** The tab title is "Pumo Feed Log" and the favicon appears. A 180×180 PNG apple-touch-icon is linked.
 - **AC-16.5 [QA]** Every empty, loading and error state in `design.md` §6 appears as specified, with screenshots in `tests/screenshots/`.
 - **AC-16.6 [QA]** axe-core finds no serious or critical accessibility violations on home or history, in either color scheme.
+
+### F17. Multiple pets (v1.1)
+- **AC-17.1 [QA]** Opening LIVE_URL with no `?pet=` query string shows Pumo's log (`DEFAULT_PET_SLUG`, contract.md §7.1/§7.10) — behavior identical to pre-v1.1 for anyone whose sticker still points at the bare URL.
+- **AC-17.2 [QA]** Opening LIVE_URL with `?pet=zuumi` or `?pet=banh-mi` shows that pet's log immediately (no extra tap): its own headline, recent list, counter and guard state, all independent of Pumo's. An unrecognized `?pet=` value (or a pet slug that doesn't exist in the database) falls back to showing Pumo's data, **without rewriting the URL bar** — the address stays exactly what was typed/tapped, only the rendered content falls back. (This keeps the behavior simple and avoids a surprising history-entry rewrite; a bad link just quietly shows Pumo instead of erroring.)
+- **AC-17.3 [QA]** A row of pet-picker avatars (design.md §3.0) is visible near the top of the home screen at all times, showing all pets from `getPets()` (contract.md §6.G) in `sort_order`, with the currently-selected pet visually distinguished. Tapping a different pet's avatar navigates to that pet's URL (`pathForPet`, contract.md §7.10) and the whole screen — headline, recent list, counter, guard, log button — updates to that pet within 1 s, with no full page flash beyond a normal navigation.
+- **AC-17.4 [QA]** Logging, undoing, deleting, the recent-feed guard, the daily guard and the undo notice all work exactly as in F3–F10, independently per pet. Logging a feed for Zuumi never changes Pumo's headline, counter, recent list or guard state, and vice versa.
+- **AC-17.5 [QA]** The history screen (F12) is scoped to whichever pet's URL opened it (`history.html?pet=zuumi` shows only Zuumi's feeds), and its back link returns to that same pet's home screen (`pathForPet`, preserving the query string).
+- **AC-17.6 [QA]** Each pet's avatar uses its real photo when `pets.photo_url` is set, or a placeholder distinguished at minimum by the pet's initial and a species-appropriate shape/color (design.md §3.0) when it isn't — placeholders must never be visually identical to each other.
+- **AC-17.7 [QA]** `frontend/js/config.js` contains no pet-specific values (no `PUMO_PHOTO_URL` or equivalent) — every pet's name, slug and photo path comes from `getPets()`, confirmed by grep.
+- **AC-17.8 [DATHAN]** Each pet's URL (documented in architecture.md §10) is short enough for an NDEF URL record (≤100 characters, per AC-1.1) and has been written to that pet's own NFC sticker and tested on at least one phone.
+
+### F18. Feeding heatmap on the history screen (v1.1)
+- **AC-18.1 [QA]** `history.html` shows a calendar-grid heatmap above the day-grouped feed list (design.md §4.1), covering `HEATMAP_WEEKS` (5) weeks including the current partial week, for the currently selected pet only.
+- **AC-18.2 [QA]** Columns are Sunday through Saturday left to right, in every locale and screen width the app supports — this is fixed, not locale-dependent like `Intl.DateTimeFormat`'s week start elsewhere. Each cell's date number matches a real calendar date, and each row is one calendar week.
+- **AC-18.3 [QA]** A cell's shade reflects the number of feeds *that feed day* (contract.md §7.6 and §7.8), in 5 tiers: 0, 1, 2, 3, 4-or-more (matching `DAILY_FEED_TARGET`). A day with zero feeds for this pet (including before the household had this pet, which the data can't distinguish from an ordinary quiet day) renders normally at the 0 tier, not blank/missing — only genuinely future dates (the grid is anchored on today, contract.md §7.8) are excluded/greyed. **Contrast rule (corrected — a literal 3:1 between every adjacent tier pair is mathematically impossible for a 5-step sequential ramp in sRGB, since that would require ~81:1 of range against a 21:1 ceiling):** the ramp must be monotone in perceptual lightness (e.g. OKLCH `L`), each adjacent step at least 0.06 apart in that space, a single consistent hue across all tiers, and every tier's date-number text must independently meet 4.5:1 against that tier's own fill. Checked per the dataviz skill's method (measured values recorded in the QA report), not picked by eye.
+- **AC-18.4 [QA]** Today's cell is visually marked as today (independent of its shade).
+- **AC-18.5 [QA]** Tapping/clicking a cell with at least one feed expands inline to show that day's feed times and feeder names (reusing the row style from F2/F12). Tapping a cell with zero feeds, or a padding cell outside the pet's range, does nothing (or shows "No feeds" — frontend agent's call, documented in the build notes). Tapping the expanded cell again, or tapping a different cell, collapses/switches it — only one cell is expanded at a time.
+- **AC-18.6 [QA]** The heatmap has a visible legend mapping shade to feed count, and every cell has an accessible name stating the date and feed count (e.g. "Tuesday, September 15: 3 feeds") for screen readers — color is never the only signal, consistent with the AC-8.2 rule elsewhere in this spec.
+- **AC-18.7 [QA]** The heatmap reloads with the rest of history.html on focus refresh (AC-6.4) and reflects deletes/undos within 1 s, same as the day-grouped list below it.
+
+### F19. CSV export of full feed history (v1.1)
+- **AC-19.1 [QA]** A "Download CSV" control is visible on `history.html` (design.md §4.2). Activating it downloads a `.csv` file (contract.md §7.9) for the currently selected pet's complete feed history — every live feed, not just the loaded page(s) — with header row `date,pet,time,feeder`.
+- **AC-19.2 [QA]** The export fetches all pages via `getAllFeedsForExport` (contract.md §6.F.2) regardless of how many "Show older feeds" pages have been loaded on screen so far; with more than `HISTORY_PAGE_SIZE` (100) feeds for a pet, the CSV still contains every one of them.
+- **AC-19.3 [QA]** Deleted feeds never appear in the export. A feeder name containing a comma or quote round-trips correctly (RFC 4180 quoting, contract.md §7.9) — verified by exporting a feed logged with a name like `Sam, Jr.` and re-parsing the CSV.
+- **AC-19.4 [QA]** While the export is fetching, the control shows a busy state and can't be activated twice at once. If a page fetch fails partway through, no partial file downloads; the control returns to its normal state and (frontend agent's call, documented in build notes) either shows a brief inline error or silently allows retry.
+- **AC-19.5 [QA]** The control is reachable by keyboard and has an accessible name that includes the pet's name (e.g. "Download Zuumi's feed history as CSV"), consistent with the icon-only-control labeling rule in design.md §7.
 
 ## 5. Out of scope
 
@@ -140,16 +169,18 @@ For time-based criteria, the QA agent may move the browser clock forward relativ
 | Installable home-screen PWA icon | The icons already exist (see design.md §8). Adding a manifest and service worker comes later. |
 | Logging a feed at a past time | `created_at` is already a normal column. A later version adds one grant (or an RPC) plus the UI. |
 | Restoring a soft-deleted feed in the app | `deleted_at` is nullable and anon may already update it. For now, restoring is done in the Supabase dashboard (architecture.md §9). |
-| Printed QR code next to the NFC tag | It would encode the same LIVE_URL, so the app needs no changes. |
-| Scheduled keep-alive ping so Supabase doesn't pause the project after 7 days idle | This would be an external cron job calling the "last 3" GET, with no app changes. |
+| Printed QR code next to the NFC tag | It would encode that pet's URL (F17), so the app needs no changes. |
+| Scheduled keep-alive ping so Supabase doesn't pause the project after 7 days idle | Set up outside the app as a weekly scheduled job hitting the "last 3" GET — no app changes. Dathan asked for this alongside v1.1; see architecture.md §9. |
+| Per-pet stats or charts beyond the F18 heatmap (trends, averages, week-over-week comparison) | The `pets`/`feeds` schema (contract.md §1) already supports querying this later; F18 is deliberately the only chart in v1.1. |
+| A 4th+ pet, or letting Dathan add/rename/remove pets from the UI | `pets` (contract.md §1) is schema-ready for more rows; adding one is a manual SQL insert (contract.md §2), same as v1's manual Supabase setup. No admin UI is built. |
 
 ### 5.2 Cut: don't build these and don't design for them
-- A calendar view of history.
 - Offline mode, or queueing feeds to sync later. No service worker caching of API data.
 - Push notifications or reminders.
 - Meal type, amount or notes fields.
 - Real accounts or login.
-- Multiple pets, multiple tags, stats or charts. No `pet_id` or `tag_id` columns and no tables beyond `feeds`.
+- Editing, tagging or reordering pets from the UI (F17 shows a fixed, pre-seeded list). A 4th tag/pet type beyond `cat`/`dog` in `pets.species`.
+- Any chart beyond the F18 heatmap; any export format beyond the F19 CSV.
 
 ## 6. Decisions made for Dathan
 
@@ -173,6 +204,13 @@ Dathan decided almost everything above. These are the calls the spec-writer made
 13. **Hosting.** If the setup values table doesn't name a host, the build uses Cloudflare Pages.
 14. **`deleted_at` timestamp.** It records the phone's clock. Only whether it is null matters, so its exact value is informational.
 
+**v1.1 additions**
+15. **Pet URL scheme.** A query string (`?pet=zuumi`), not a path or subdomain, because GitHub Pages serves static files with no server-side routing, and a query string is the only scheme that works identically whether hosting is GitHub Pages or Cloudflare Pages. Pumo keeps the bare LIVE_URL with no query string (no re-programming Pumo's existing sticker).
+16. **Why 3 AM and not, say, 4 AM or "ask each morning."** Dathan said late-night feeding was the trigger, and 3 AM was his stated number — no further product judgment was needed here.
+17. **Heatmap buckets by feed count, not hours.** The reference image Dathan supplied was an hours-based activity tracker; feed count is the metric this app actually has, so the legend/tiers use `DAILY_FEED_TARGET` (4) as the top bucket, matching the counter's own meaning of "a full day."
+18. **CSV export scope: the selected pet only, not all pets at once.** A single combined export would need a pet column anyway (which it has) and could be reconstructed by exporting each pet, but scoping to one pet keeps the button's meaning ("this pet's history") consistent with every other control on the history screen, all of which are pet-scoped.
+19. **Keep-alive ping lives outside the app**, as a separately scheduled job (not a feature described in this spec, since it has no user-facing behavior) — see architecture.md §9.
+
 ## 7. What success looks like
 
-A week after launch, all four people and any cat-sitter use the sticker without being reminded. When Pumo yowls at the bowl, anyone can answer "has he eaten?" in under 5 seconds, from any phone, and get the same answer. Double feeds stop, because the 2-hour and 4-a-day guards catch the reflex tap without annoying anyone on a normal feed. Nobody has lost a feed record, since a wrong tap is one Undo away and nothing is ever hard-deleted. Dathan's total hands-on setup is under an hour plus sticker shipping, and after that the app needs no maintenance.
+A week after launch, all four people and any cat-sitter use the sticker without being reminded. When Pumo yowls at the bowl, anyone can answer "has he eaten?" in under 5 seconds, from any phone, and get the same answer. Double feeds stop, because the 2-hour and 4-a-day guards catch the reflex tap without annoying anyone on a normal feed. Nobody has lost a feed record, since a wrong tap is one Undo away and nothing is ever hard-deleted. Dathan's total hands-on setup is under an hour plus sticker shipping, and after that the app needs no maintenance. **As of v1.1:** the same is true for Zuumi and Banh Mi, each answerable from their own sticker; a glance at the history heatmap shows feeding patterns across the last month without anyone counting rows; and a CSV download gives Dathan a portable backup whenever he wants one, on top of Postgres already keeping every feed forever.

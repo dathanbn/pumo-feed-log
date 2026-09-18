@@ -48,9 +48,20 @@ test.describe('F10 — Delete any past feed, with one confirmation', () => {
   }) => {
     // Reproduces contract.md §7.5's own worked example: feeds today at 7:42 AM and 3:10 AM,
     // deleting 7:42. Times are supplied directly (not derived from "now") for an exact match.
+    //
+    // The real "now" must be frozen to a safe daytime hour on the SAME calendar date these
+    // fixture times use. Without this, running the suite between local midnight and 3 AM (the
+    // feed day hasn't rolled over yet — contract.md §7.6) makes `new Date()`'s CALENDAR date
+    // disagree with the app's own FEED-day "today", since 7:42 AM/3:10 AM on that calendar date
+    // are still in the future relative to a pre-3-AM "now" and read as a different feed day —
+    // confirmed by direct repro: unfrozen, deleteConsequence correctly falls back to its
+    // documented non-today wording (full date label, no "Today's count..." clause) exactly per
+    // contract.md §7.5's own rules; frozen at a sane hour, it produces the exact worked-example
+    // sentence. Not a frontend defect — a test-timing flakiness bug in this spec.
     const today = new Date();
     const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
     const at = (h, min) => new Date(y, m, d, h, min, 0).toISOString();
+    await page.clock.install({ time: new Date(y, m, d, 11, 0, 0) });
     await mockHomeData(page, {
       recent: [
         { id: 'f-742', created_at: at(7, 42), logged_by: 'QA-test' },
@@ -120,6 +131,15 @@ test.describe('F10 — Delete any past feed, with one confirmation', () => {
   }) => {
     await mockHomeData(page, { recent: [fakeFeed({ agoMs: MS.minutes(30) })], todayCount: 1 });
     await gotoHome(page);
+    // Wait for the row to actually render before layering the PATCH-fail route on top: goto's
+    // 'load' event can resolve before the page's own async getPets()->getRecentFeeds() chain
+    // finishes, and Playwright's most-recently-registered-route-runs-first order means
+    // registering failFirstThenAllow too early can intercept (and, via its own route.continue()
+    // for non-PATCH methods, send straight to the network instead of falling through to)
+    // mockHomeData's still-in-flight initial GETs — confirmed by direct repro: without this
+    // wait, the test is a race that intermittently renders "Can't load feeds" instead of the
+    // fixture row. Not a frontend defect — a QA-side test-suite race, fixed here.
+    await rowDeleteButton(page).first().waitFor({ state: 'visible', timeout: 8000 });
     net.failFirstThenAllow(page, { methodFilter: 'PATCH', mode: 'abort' });
 
     await rowDeleteButton(page).first().click();
@@ -142,9 +162,14 @@ test.describe('F10 — Delete any past feed, with one confirmation', () => {
   test('AC-10.5 — only one row can confirm at a time; opening a second cancels the first', async ({
     page,
   }) => {
+    // Same feed-day-boundary test-timing class of bug as AC-10.2/AC-12.1b — see those specs'
+    // comments. Freeze "now" to a safe daytime hour on the calendar date the fixture times
+    // below are built from, so it can't disagree with the app's own feed-day "today" when run
+    // between local midnight and 3 AM.
     const today = new Date();
     const y = today.getFullYear(), m = today.getMonth(), d = today.getDate();
     const at = (h, min) => new Date(y, m, d, h, min, 0).toISOString();
+    await page.clock.install({ time: new Date(y, m, d, 11, 0, 0) });
     await mockHomeData(page, {
       recent: [
         { id: 'f-915', created_at: at(9, 15), logged_by: 'Sam' },

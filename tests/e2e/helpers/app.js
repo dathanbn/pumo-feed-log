@@ -1,13 +1,27 @@
 // tests/e2e/helpers/app.js
 // Page-level helpers: navigation, localStorage seeding, visibility/focus simulation.
+//
+// v1.1 (contract.md §7.10 `pathForPet`, architecture.md §10): every pet except the default
+// (Pumo) is reached via `?pet={slug}` on the SAME index.html/history.html — there is no
+// separate URL path per pet. gotoHome/gotoHistory below take an optional `petSlug` and build
+// that query string themselves, mirroring pathForPet exactly (no query string for the default
+// pet, `?pet={slug}` otherwise) — this file must not hand-write a different shape.
 
 'use strict';
 
-const { LIVE_URL, CONSTANTS } = require('../config');
+const { LIVE_URL, CONSTANTS, DEFAULT_PET_SLUG } = require('../config');
 
 const HOME_URL = `${LIVE_URL}/index.html`;
 const HOME_URL_ROOT = `${LIVE_URL}/`;
 const HISTORY_URL = `${LIVE_URL}/history.html`;
+
+/** Mirrors contract.md §7.10 `pathForPet(slug, page)`. Returns a URL relative to LIVE_URL
+ *  (e.g. `index.html`, `index.html?pet=zuumi`, `history.html?pet=banh-mi`). Not exported as
+ *  "pathForPet" itself — this is QA's own reimplementation for building request URLs, not the
+ *  app's function (we don't import frontend/js/logic.js — see selectors.js's header note). */
+function urlForPet(petSlug = DEFAULT_PET_SLUG, page = 'index.html') {
+  return petSlug === DEFAULT_PET_SLUG ? page : `${page}?pet=${encodeURIComponent(petSlug)}`;
+}
 
 /**
  * Seed localStorage BEFORE any page script runs, via an init script on the context.
@@ -39,12 +53,17 @@ async function seedQaLoggerName(pageOrContext, name = 'QA-test') {
   await seedLocalStorage(pageOrContext, { loggerName: name, namePromptDone: true });
 }
 
-async function gotoHome(page) {
-  await page.goto(HOME_URL_ROOT, { waitUntil: 'load' });
+/** `petSlug` omitted or DEFAULT_PET_SLUG -> the bare root URL (unchanged from v1, AC-17.1:
+ *  "no ?pet= query string shows Pumo's log ... identical to pre-v1.1"). Any other slug (or a
+ *  deliberately unrecognized one, for AC-17.2's fallback case) appends `?pet=`. */
+async function gotoHome(page, petSlug = DEFAULT_PET_SLUG) {
+  const url = petSlug === DEFAULT_PET_SLUG ? HOME_URL_ROOT : `${LIVE_URL}/${urlForPet(petSlug)}`;
+  await page.goto(url, { waitUntil: 'load' });
 }
 
-async function gotoHistory(page) {
-  await page.goto(HISTORY_URL, { waitUntil: 'load' });
+async function gotoHistory(page, petSlug = DEFAULT_PET_SLUG) {
+  const url = `${LIVE_URL}/${urlForPet(petSlug, 'history.html')}`;
+  await page.goto(url, { waitUntil: 'load' });
 }
 
 /**
@@ -94,6 +113,7 @@ module.exports = {
   HOME_URL,
   HOME_URL_ROOT,
   HISTORY_URL,
+  urlForPet,
   seedLocalStorage,
   seedQaLoggerName,
   gotoHome,

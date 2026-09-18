@@ -7,7 +7,7 @@ const { test, expect } = require('../helpers/fixtures');
 const rest = require('../helpers/rest');
 const { gotoHome, seedQaLoggerName } = require('../helpers/app');
 const { logButton, undoNoticeRegion } = require('../helpers/selectors');
-const { mockHomeData, fakeFeed } = require('../helpers/mock');
+const { mockHomeData, mockSuccessfulWrites, mockLostResponseThenConflict, countFeedRequests, fakeFeed } = require('../helpers/mock');
 const net = require('../helpers/network');
 const { shot } = require('../helpers/screenshot');
 const { MS } = require('../helpers/time');
@@ -68,6 +68,75 @@ test.describe('F4 — Button locks while saving; failed saves retry', () => {
     await expect(logButton(page)).toHaveText(/Logged/, { timeout: 6000 });
     const after = (await rest.listLiveQaTestRows()).length;
     expect(after - before, '5 rapid taps while disabled should still create exactly 1 row').toBe(1);
+  });
+
+  // Fix round 1 (Opus review item 11): AC-4.1/4.2/4.4's claims are about pure CLIENT behavior
+  // (a request count, UI text before/after a response resolves, retry-reuses-id handling) —
+  // none of them need a real Supabase round trip, only a plausible-shaped POST response, so
+  // BLOCKED (this sandbox can't reach *.supabase.co) was overly conservative for these three.
+  // Mocked below via helpers/mock.js's mockSuccessfulWrites/mockLostResponseThenConflict,
+  // alongside (not replacing) the real-network versions above, which remain the stronger proof
+  // once a real deploy/CI environment is available.
+  test('AC-4.1b — mocked: disabled + "Saving…" while pending; 5 rapid taps under 3s latency send exactly 1 POST', async ({
+    page,
+    context,
+  }) => {
+    await gotoReadyHome(page, context);
+    await mockSuccessfulWrites(page, { postDelayMs: 3000 });
+
+    const posts = countFeedRequests(page, 'POST');
+    const box = await logButton(page).boundingBox();
+    expect(box).not.toBeNull();
+
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
+    await expect(logButton(page)).toHaveText('Saving…');
+    await expect(logButton(page)).toBeDisabled();
+
+    await expect(logButton(page)).toHaveText(/Logged/, { timeout: 6000 });
+    expect(posts.count, '5 rapid taps while disabled should still send exactly 1 POST').toBe(1);
+  });
+
+  test('AC-4.2b — mocked: "Logged" never appears while the mocked POST is still pending', async ({ page, context }) => {
+    await gotoReadyHome(page, context);
+    await mockSuccessfulWrites(page, { postDelayMs: 2500 });
+    await logButton(page).click();
+
+    // Poll for ~2s (less than the 2.5s latency) and confirm "Logged" never shows up.
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      await expect(logButton(page)).not.toHaveText(/Logged/);
+      await page.waitForTimeout(200);
+    }
+    await expect(logButton(page)).toHaveText(/Logged/, { timeout: 3000 }); // then it does, once resolved
+  });
+
+  test('AC-4.4b — mocked: lost response then 409 conflict — retry reuses the same id, only one id ever POSTed', async ({
+    page,
+    context,
+  }) => {
+    await gotoReadyHome(page, context);
+    await mockLostResponseThenConflict(page);
+
+    const postedIds = new Set();
+    page.on('request', (req) => {
+      if (req.method() === 'POST' && req.url().includes('/rest/v1/feeds')) {
+        try {
+          postedIds.add(JSON.parse(req.postData() || '{}').id);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+
+    await logButton(page).click();
+    await expect(logButton(page)).toHaveText('Not saved, tap to retry', { timeout: 12000 });
+    expect(postedIds.size, 'the first attempt should have posted exactly one id').toBe(1);
+
+    await logButton(page).click(); // retry — same id, 409/23505 -> GET-by-id path -> success
+    await expect(logButton(page)).toHaveText(/Logged/, { timeout: 5000 });
+    expect(postedIds.size, 'the retry must reuse the SAME id, never mint a new one').toBe(1);
   });
 
   test('AC-4.2 — "Logged" never appears while the POST is still pending', async ({ page, context }) => {

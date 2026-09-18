@@ -1,5 +1,7 @@
 # Pumo Feed Log: build tasks
 
+**v1.1 addendum:** this build adds multi-pet support (F17), the history heatmap (F18) and CSV export (F19) to an already-shipped v1. The team split, ground rules and task numbering below are unchanged from v1 — read them as still current, with the v1.1-tagged additions layered in at Task 1 (schema migration), Task 2 (new UI/logic), Task 3 (new unit tests) and the QA section (new ACs, new screenshots). There is no separate v1.1 team; the same Frontend and QA agents cover the whole current scope, since most of v1's code is being extended in place rather than replaced.
+
 ## 0. Team, order, ground rules
 
 **Decision: option (a). The Supabase schema and policies are a one-time setup task owned by the frontend agent. There is no separate backend or logic agent.** It's about 25 lines of config SQL applied once plus two copied values, with no server code. A second agent would only add a handoff and a second owner of the same four REST calls, with nothing to do in parallel.
@@ -38,32 +40,26 @@ It does **not** touch `tests/e2e/`, `tests/screenshots/` or `tests/qa-report.md`
 - AC-2.1–2.5, AC-3.1–3.2, AC-4.1–4.5, AC-5.1–5.2, AC-6.1–6.4
 - AC-7.1–7.8, AC-8.1–8.5, AC-9.1–9.5, AC-10.1–10.5, AC-11.1–11.3
 - AC-12.1–12.4, AC-13.1–13.2, AC-14.1–14.6, AC-15.1, AC-16.1–16.6
-- Owns outright: the [UNIT] parts of AC-7.3 and AC-8.5
+- **v1.1: AC-17.1–17.7, AC-18.1–18.7, AC-19.1–19.5** (AC-17.8 is [DATHAN] — sticker programming, not built)
+- Owns outright: the [UNIT] parts of AC-7.3 and AC-8.5 (**and, v1.1, AC-8.5's new 3 AM/midnight-to-3AM cases**)
 
 ### Task 1: Supabase setup and preflight (config, not code)
-1. Write `backend/schema.sql` exactly as in `contract.md` §2.
-2. Read the setup values in `docs/architecture.md` §8.
-   - **`SUPABASE_SETUP_PATH = mcp`:** use the Supabase MCP tools:
-     1. `list_organizations`
-     2. `get_cost` then `confirm_cost` (must be $0, Free plan)
-     3. `create_project` (name `pumo-feed-log`, region `SUPABASE_REGION` or `us-west-1`)
-     4. Poll `get_project` until the status is healthy or active
-     5. `apply_migration` (name `create_feeds`, SQL = `backend/schema.sql`)
-     6. `get_project_url` and `get_publishable_keys` (prefer the `sb_publishable_…` key)
-     7. Write the URL and key into §8 and `frontend/js/config.js`
-   - **If a free project already exists** in the org with the name `pumo-feed-log`, reuse it and apply the migration instead of creating a second one.
-   - **`manual`:** copy `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` into `frontend/js/config.js`.
-3. **Preflight.** Run these with `curl` and paste the status codes and response bodies into the hand-off:
-   1. GET "last 3" (contract §6.A) → `200` with a JSON array.
-   2. POST `{"id":"<new uuid>","logged_by":"Build-test"}` → `201` with the row, including a server `created_at`.
-   3. POST the **same** id again → `409`, code `23505`.
-   4. POST with `created_at` (contract §6.F) → `401`/`403`, code `42501`.
-   5. PATCH soft-delete on the row from 3.2 → `200` with `deleted_at` set. Repeating it → `200 []`.
-   6. DELETE on that row → `401`/`403`, code `42501`. A GET by id still returns it.
+1. Write `backend/schema.sql` exactly as in `contract.md` §2 — **this is the v1.1 schema**, i.e. it includes the `pets` table and the `feeds.pet_id` migration, not just the original `feeds` table. Since the live project already has v1's `feeds` table populated with real rows, this step is a **migration against a live database**, not a fresh create — the SQL is written to be safe either way (see contract.md §2's comment).
+2. The project already exists (`dufyzxtrhdcwrebagsfs`, "Pumo Feeder", per `docs/architecture.md` §8) — use the Supabase MCP tools directly against it, no `create_project` step:
+   1. `apply_migration` (name `add_pets_and_pet_id`, SQL = `backend/schema.sql`)
+   2. Confirm via `execute_sql`: `select slug, name from public.pets order by sort_order;` returns exactly Pumo, Zuumi, Banh Mi, and `select count(*) from public.feeds where pet_id is null;` returns `0`.
+3. **Preflight — v1.1 additions on top of the original 6 checks** (run all of these with `curl`, paste status codes and bodies into the hand-off):
+   1. GET `pets` (contract §6.G) → `200` with 3 rows.
+   2. GET "last 3" for Pumo's `pet_id` (contract §6.A) → `200` with a JSON array.
+   3. POST `{"id":"<new uuid>","pet_id":"<zuumi's id>","logged_by":"Build-test"}` → `201` with the row, including a server `created_at` and the right `pet_id`.
+   4. POST the **same** id again → `409`, code `23505`.
+   5. POST with `created_at` (contract §6.F) → `401`/`403`, code `42501`.
+   6. POST to `/rest/v1/pets` (contract §6.F) → `401`/`403`, code `42501`.
+   7. PATCH soft-delete on the row from 3.3 → `200` with `deleted_at` set. Repeating it → `200 []`.
+   8. DELETE on that row → `401`/`403`, code `42501`. A GET by id still returns it.
 4. **If the preflight fails:**
-   - **MCP path:** re-apply `backend/schema.sql` with `execute_sql`, run `notify pgrst, 'reload schema';`, and retry once.
-   - **Manual path:** wait 60 s and retry once.
-   - **Still failing:** stop the build and report **BLOCKED**, naming the exact failing call. The fix to give Dathan is "re-run architecture.md §7 step 2 SQL in the SQL Editor". If `*.supabase.co` can't be reached from the build environment at all, report BLOCKED: network allowlist (architecture.md §7 step 7.5).
+   - Re-apply `backend/schema.sql` with `execute_sql`, run `notify pgrst, 'reload schema';`, and retry once.
+   - **Still failing:** stop the build and report **BLOCKED**, naming the exact failing call.
 
 ### Task 2: Build the app
 Build to `architecture.md` §3–§4, `design.md` and `contract.md`:
@@ -76,27 +72,30 @@ Build to `architecture.md` §3–§4, `design.md` and `contract.md`:
    - Modules loaded with `<script type="module">`. All paths relative.
    - A `data-app="pumo-feed-log"` attribute on `<body>`.
 2. **`css/styles.css`:** tokens, type, spacing, the button states from design.md §3.4, the reduced-motion overrides, and a single centered column at most 440 px wide.
-3. **`js/constants.js`:** exactly contract.md §7.1. **`js/config.js`:** per contract.md §4. Set `PUMO_PHOTO_URL = 'assets/pumo.jpg'` only if `PUMO_PHOTO` is set in the setup values.
-4. **`js/logic.js`:** every function listed in architecture.md §4, following contract.md §7 to the letter. `now` is always a parameter.
-5. **`js/api.js`:** the four operations and error normalization from contract.md §6 and §8. It must never send `created_at` and never use `DELETE`.
-6. **`js/storage.js`:** contract.md §9, with every access wrapped in try/catch.
+3. **`js/constants.js`:** exactly contract.md §7.1 (now includes `FEED_DAY_START_HOUR`, `HEATMAP_WEEKS`, `DEFAULT_PET_SLUG`). **`js/config.js`:** per contract.md §4 — **v1.1: two values only, no `PUMO_PHOTO_URL`** (that's now `pets.photo_url` in the database, seeded by the schema migration in Task 1).
+4. **`js/logic.js`:** every function listed in architecture.md §4, following contract.md §7 to the letter. `now` is always a parameter. **v1.1 additions:** `startOfFeedDay`/`feedDayKey` (§7.6), `buildHeatmap` (§7.8), `feedsToCsv` (§7.9), `petSlugFromLocation`/`pathForPet` (§7.10) — and every existing function that used calendar-day grouping (`groupByDay`, `formatFeedLabel`, `formatDayHeading`) now uses `feedDayKey` instead, per §7.6.
+5. **`js/api.js`:** the operations and error normalization from contract.md §6 and §8. It must never send `created_at` and never use `DELETE`. **v1.1 additions:** `getPets` (§6.G), `getAllFeedsForExport` (§6.F.2); every existing call that touches `feeds` now filters by `pet_id` (§6.A, §6.B, §6.E) and `logFeed`'s body now includes `pet_id` (§6.C).
+6. **`js/storage.js`:** contract.md §9, with every access wrapped in try/catch. **Unchanged by v1.1** — pet selection is URL-only, never localStorage (architecture.md §4's `storage.js` row).
 7. **`js/ui.js`:**
    - The status region.
    - `onFocusRefresh`: `visibilitychange`→visible, `focus`, and `pageshow`, debounced.
    - The shared feed row with inline delete confirmation (design.md §3.6), its focus handling and Escape.
    - Error panel and refresh banner.
+   - **v1.1:** the pet-picker renderer (design.md §3.0) and the heatmap grid/cell renderer (design.md §4.1), shared between home.js and history.js per architecture.md §4.
 8. **`js/home.js`**
    - The button state machine exactly as in architecture.md §4, with the 6 s arm timeout and the revert on hide.
-   - The 30 s tick: relative labels, ready/guarded, and midnight detection → refresh.
+   - The 30 s tick: relative labels, ready/guarded, and feed-day-boundary detection (3 AM, not midnight — contract.md §7.6) → refresh.
    - The undo notice (design.md §3.5).
    - The name card and footer (design.md §3.7).
    - All the states in design.md §6 (S1–S8, S13, S14).
-9. **`js/history.js`:** day groups with counts, paging with "Show older feeds", delete confirmation, a focus refresh that reloads the first page and drops the older pages, and states S9–S13.
+   - **v1.1:** resolve the pet from the URL (`petSlugFromLocation` + `getPets`) before the first render, render the picker (design.md §3.0), and scope every `api.js` call to that pet's id.
+9. **`js/history.js`:** day groups with counts, paging with "Show older feeds", delete confirmation, a focus refresh that reloads the first page and drops the older pages, and states S9–S13. **v1.1:** the same pet resolution as home.js; the heatmap (design.md §4.1, states S16) built from the loaded feeds via `buildHeatmap`; the Download CSV button (design.md §4.2, states S15) calling `getAllFeedsForExport` + `feedsToCsv` and triggering a client-side download.
 10. **Self-review checks:**
     - `grep` finds no `innerHTML` assignments that include feed or name data.
     - No `'DELETE'` string anywhere in `frontend/js`.
     - No `created_at` in any request body.
     - No number literals that duplicate constants.
+    - **v1.1:** no `PUMO_PHOTO_URL` or other pet-specific literal anywhere in `frontend/js` (grep for `pumo`/`zuumi`/`banh` outside of `constants.js`'s `DEFAULT_PET_SLUG` and test files turns up nothing hardcoded — pet data always comes from `getPets()`). Every `feeds` query in `api.js` includes a `pet_id=eq.` filter except `getPets` itself (which queries `pets`, not `feeds`).
 
 ### Task 3: Unit tests (`tests/unit/logic.test.mjs`, run with `node --test tests/unit`)
 The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at least:
@@ -107,11 +106,29 @@ The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at le
   - Negative elapsed (clock skew) counts as 0.
 - **`armedLabel`:** all three variants, word for word as in contract.md §7.2.
 - **`formatRelative`:** 0 s, 59 s, 60 s, 59 m, 60 m ("1h 0m ago"), 23h 59m, 24 h ("1d 0h ago").
-- **`startOfLocalDay`:** a normal day, 2026-03-08 and 2026-11-01 in `America/Los_Angeles`, and a feed at 23:59:59.999 vs 00:00:00.000.
-- **`groupByDay`:** feeds on both sides of midnight, ordering, counts.
+- **`startOfLocalDay`:** a normal day, 2026-03-08 and 2026-11-01 in `America/Los_Angeles`, and a feed at 23:59:59.999 vs 00:00:00.000. (This function is kept for calendar-day display logic that's independent of the feed day, per contract.md §7.6 — it is not deleted in v1.1.)
+- **`startOfFeedDay` / `feedDayKey` (v1.1, contract.md §7.6):**
+  - A feed at 2:59:59.999 AM belongs to the *previous* feed day; one at 3:00:00.000 AM belongs to the current one.
+  - 2026-03-08 and 2026-11-01 in `America/Los_Angeles` (the DST transition days), each with a case for a feed logged between midnight and 3 AM.
+  - `feedDayKey` agrees with `startOfFeedDay` at the boundary (no off-by-one between the two).
+- **`groupByDay`:** feeds on both sides of the **feed-day** boundary (3 AM, not midnight, v1.1), ordering, counts.
 - **`deleteConsequence`:** every case and example in contract.md §7.5.
 - **`sanitizeName`:** trimming, collapsing whitespace, 20-character cut, empty → `null`, HTML-looking input kept as literal text.
 - **`newFeedId`:** a v4 UUID format with and without `crypto.randomUUID` available.
+- **`buildHeatmap` (v1.1, contract.md §7.8):**
+  - Sunday always lands in column 0 regardless of what day `now` falls on — assert this for at least 3 different `now` values landing on different weekdays.
+  - A day with exactly `DAILY_FEED_TARGET` (4) feeds gets the top tier; 3 gets the tier below it; 0 gets the empty tier.
+  - Padding cells before the range start are marked `inRange: false` and never colored past the empty tier even if (by construction) they'd otherwise match a date with feeds.
+  - Uses feed-day bucketing (a 1:30 AM feed lands on the previous day's cell), consistent with `groupByDay`.
+- **`feedsToCsv` (v1.1, contract.md §7.9):**
+  - Header row exact text `date,pet,time,feeder`.
+  - A feeder name containing a comma and a double quote round-trips (gets quoted/escaped per RFC 4180).
+  - `null` `logged_by` renders as `Someone`.
+  - Row order is oldest-first (reversed from the newest-first input).
+  - Date column uses the feed day, not the calendar day, for a 1:30 AM feed.
+- **`petSlugFromLocation` / `pathForPet` (v1.1, contract.md §7.10):**
+  - No `?pet=` param, an empty one, and an unrecognized slug all resolve to `DEFAULT_PET_SLUG`.
+  - `pathForPet(DEFAULT_PET_SLUG)` returns the bare page name with no query string; any other slug returns `{page}?pet={slug}`.
 
 ### Task 4: Assets (design.md §8)
 - Hand-write `frontend/assets/icon.svg`.
@@ -130,15 +147,16 @@ The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at le
 5. Soft-delete all `Build-test` rows with a PATCH filtered by `logged_by=eq.Build-test&deleted_at=is.null`.
 
 ### Done means (all checkable)
-- [ ] `backend/schema.sql` is byte-identical to the SQL in contract.md §2, and all 6 preflight calls returned the expected codes (outputs in the hand-off).
-- [ ] `node --test tests/unit` passes under `TZ=America/Los_Angeles` and `TZ=UTC`.
+- [ ] `backend/schema.sql` is byte-identical to the SQL in contract.md §2, and all 8 preflight calls (v1.1: was 6) returned the expected codes (outputs in the hand-off).
+- [ ] `node --test tests/unit` passes under `TZ=America/Los_Angeles` and `TZ=UTC`, including the v1.1 cases (Task 3).
 - [ ] `LIVE_URL/build.txt` (or the agreed fallback URL) matches the final commit.
-- [ ] In two separate Playwright browser contexts at 390×844: tapping Log a feed in context A shows "Logged" within 1 s, and reloading context B shows the feed at the top of Recent.
+- [ ] In two separate Playwright browser contexts at 390×844: tapping Log a feed in context A shows "Logged" within 1 s, and reloading context B shows the feed at the top of Recent. Repeat this once for a non-default pet (`?pet=zuumi`) to confirm scoping isn't accidentally shared across pets.
 - [ ] A feed 1h 55m old (browser clock moved forward) arms on the first tap. One 2h 05m old logs on the first tap.
-- [ ] Home and history load with zero console errors, in light and dark.
+- [ ] Home and history load with zero console errors, in light and dark, for all 3 pets.
 - [ ] The Task 2 step 10 grep checks are clean.
 - [ ] No `Build-test` rows remain undeleted.
-- [ ] The hand-off to QA includes: LIVE_URL (or fallback URL), build.txt value, preflight outputs, and Build notes (any judgment calls made).
+- [ ] **v1.1:** the pet picker, heatmap and CSV button all render and work for all 3 pets; switching pets never shows another pet's data even briefly during the navigation.
+- [ ] The hand-off to QA includes: LIVE_URL (or fallback URL), build.txt value, preflight outputs, each pet's URL (architecture.md §10), and Build notes (any judgment calls made — flag the AC-18.5/AC-19.4 "frontend agent's call" items from spec.md explicitly here).
 
 ---
 
@@ -151,7 +169,7 @@ Independently prove, on the real Supabase project and the real deploy, that ever
 `tests/e2e/`, `tests/screenshots/`, `tests/qa-report.md`. It **does not edit** `frontend/` or `backend/`. Defects go back to the frontend agent.
 
 ### Responsible for
-Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6), reviewing that the **[UNIT]** tests exist and pass, and writing the **[DATHAN]** checklist.
+Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **and v1.1's AC-17.1–19.5**), reviewing that the **[UNIT]** tests exist and pass, and writing the **[DATHAN]** checklist (**v1.1 adds AC-17.8**, programming Zuumi's and Banh Mi's stickers).
 
 ### Setup
 - **Tooling:** Playwright with Chromium and `@axe-core/playwright`, installed under `tests/e2e/` (its own `package.json` there is fine).
@@ -173,9 +191,10 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6), reviewin
 - **Visibility and focus:** use a real tab switch where headless supports it. Otherwise dispatch the events from `page.evaluate`, overriding `document.visibilityState` → `'hidden'`, firing `visibilitychange`, then `'visible'` and firing it again, plus `window` `focus` and a `pageshow` with `persisted: true`.
 - **Data hygiene:**
   - Set `localStorage['pumo.loggerName'] = 'QA-test'` in test contexts (except the name-card tests).
-  - **Before each scenario**, soft-delete every live `QA-test` row with a REST PATCH, so counts and guards start clean.
+  - **Before each scenario**, soft-delete every live `QA-test` row (across all 3 pets) with a REST PATCH, so counts and guards start clean.
   - For S1 and S10 (zero feeds): if live rows exist that aren't test rows, don't touch them. Intercept the GETs to return `[]` instead, and note that in the report.
-  - For AC-12.3, create 101 `QA-test` rows by REST POST, then soft-delete them.
+  - For AC-12.3, create 101 `QA-test` rows by REST POST (all for one pet — Pumo is fine), then soft-delete them.
+  - **v1.1:** every `QA-test` row must include a valid `pet_id` (insert will 400 without one — the column is `not null`). For AC-18's heatmap ACs, seed a small, deliberate spread of `QA-test` rows across several of the last `HEATMAP_WEEKS` weeks (including at least one day at each tier: 0, 1, 2, 3, 4+) for one pet, so the heatmap has real structure to screenshot and assert against, then soft-delete them after.
 
 ### What to verify
 1. **Every [QA] criterion, in spec.md order.** For each, record PASS, FAIL or BLOCKED, the evidence (screenshot names, script name and line) and notes.
@@ -201,7 +220,11 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6), reviewin
   - Delete confirmation before/after on home and on history, delete failed
   - Name card, footer with a name
   - History grouped (light and dark), history empty (S10), history loading (S9), history error (S11), show-older error (S12)
-  - Desktop at 1440 px, and 375×553 showing AC-2.3
+  - Desktop at 1440 px, and 375×553 showing AC-2.3 (**v1.1: re-verify AC-2.3 still holds with the picker row present, per design.md §3.1's note — screenshot it specifically**)
+  - **v1.1:** pet picker on home, for all 3 pets, light and dark (showing the selected-pet ring and the placeholder avatars for Zuumi/Banh Mi)
+  - **v1.1:** heatmap on history, light and dark, with a visible spread of tiers (per the seeded QA-test data above), plus one screenshot of an expanded day cell
+  - **v1.1:** Download CSV button resting, in-flight ("Preparing…"), and failed (S15) states
+  - **v1.1:** a feed logged between midnight and 3 AM, showing "Yesterday, {time}" on home and in its history day group (AC-8.5)
 
 ### `tests/qa-report.md` structure
 1. Header: tested URL, `build.txt` value, date and time, Supabase project ref (from the URL), browsers and devices, time zones used.
@@ -218,11 +241,12 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6), reviewin
 7. Test data: confirmation that all `QA-test` rows are soft-deleted, plus the optional cleanup SQL from architecture.md §9.
 
 ### Done means
-- [ ] Every [QA] criterion in spec.md has a result backed by evidence. None are left untested.
-- [ ] Every design.md §6 state has a screenshot, and the minimum screenshot set exists.
-- [ ] axe results are recorded and there are no serious or critical violations (or they're filed as FAIL).
-- [ ] `tests/qa-report.md` is committed, with the DATHAN checklist included.
-- [ ] No live `QA-test` rows remain.
+- [ ] Every [QA] criterion in spec.md has a result backed by evidence, **including AC-17.1–19.5 (v1.1)**. None are left untested.
+- [ ] Every design.md §6 state has a screenshot, and the minimum screenshot set exists (**including the v1.1 additions above**).
+- [ ] axe results are recorded and there are no serious or critical violations (or they're filed as FAIL), **checked on at least one non-Pumo pet's home screen too, not only Pumo's**.
+- [ ] `tests/qa-report.md` is committed, with the DATHAN checklist included (**including AC-17.8, sticker programming for Zuumi and Banh Mi**).
+- [ ] No live `QA-test` rows remain, for any of the 3 pets.
+- [ ] The CSV export was actually downloaded once during testing and its contents checked against the known seeded rows (right header, right row count, right values) — not just that the button didn't error.
 
 ---
 

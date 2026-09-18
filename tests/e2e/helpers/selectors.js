@@ -44,8 +44,11 @@ function recentList(page) {
 function recentRows(page) {
   return page.getByRole('listitem').filter({ hasNot: page.getByText(/^RECENT$/i) });
 }
-function recentEmptyMessage(page) {
-  return page.getByText('When Pumo gets fed, tap the button below.');
+// v1.1: per-pet copy (frontend/js/home.js: `When ${state.pet.name} gets fed, tap the button
+// below.`) — defaults to 'Pumo' so every pre-v1.1 call site keeps working unchanged, same
+// pattern as historyBackLink/csvDownloadButton below.
+function recentEmptyMessage(page, petName = 'Pumo') {
+  return page.getByText(`When ${petName} gets fed, tap the button below.`);
 }
 
 // Row delete (icon) button: design.md §7 exact aria-label pattern
@@ -127,8 +130,13 @@ function fullHistoryLink(page) {
 // correctly hid the card — confirmed by direct repro: getByRole alone -> 0 after hide,
 // getByRole.or(getByText(regex)) -> 1 after hide (the getByText half still matching the
 // hidden DOM node). Do not reintroduce a getByText-based fallback here.
-function nameCardHeading(page) {
-  return page.getByRole('heading', { name: /Who.s feeding Pumo\?/ });
+// v1.1: per-pet copy (frontend/js/home.js: `Who's feeding ${state.pet.name}?`) — defaults to
+// 'Pumo' so every pre-v1.1 call site keeps working unchanged. `.` still stands in for the
+// apostrophe (straight vs curly tolerance, see the note above) and petName is regex-escaped
+// since 'Banh Mi' contains a space that must match literally.
+function nameCardHeading(page, petName = 'Pumo') {
+  const escaped = petName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.getByRole('heading', { name: new RegExp(`Who.s feeding ${escaped}\\?`) });
 }
 function nameInput(page) {
   return page.getByLabel('Your name');
@@ -186,8 +194,103 @@ function dayHeading(page, name) {
 function historyEmptyMessage(page) {
   return page.getByText('No feeds logged yet.');
 }
-function historyBackLink(page) {
-  return page.getByRole('link', { name: /Pumo/ });
+// design.md §4: "‹ Pumo", pet-scoped (§3.0/§4.0) — generalized so it works for any pet, not
+// just the default. Defaults to /Pumo/ to keep every pre-v1.1 call site working unchanged.
+function historyBackLink(page, petName = 'Pumo') {
+  const escaped = petName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.getByRole('link', { name: new RegExp(escaped) });
+}
+
+// ---------------------------------------------------------------------------------------------
+// v1.1: Pet picker (design.md §3.0, contract.md §6.G/§7.10, spec.md F17)
+// ---------------------------------------------------------------------------------------------
+
+// design.md §3.0: "Each avatar is a real <a href='...'>, aria-current='true' on the selected
+// one, and aria-label='{pet name}'". The copy table (design.md §5) confirms the accessible
+// name pattern is just the bare pet name, so getByRole('link', {name: petName}) is exact —
+// but a pet's real photo also carries alt="Pumo" (design.md §7 "Avatar"), so scope to the
+// picker's own container where one is identifiable, and otherwise accept either a link or an
+// img-with-alt match. Kept deliberately loose (two `.or()` fallbacks) since the exact DOM
+// shape doesn't exist yet to verify against — narrow this once real markup exists.
+function petPickerAvatarLink(page, petName) {
+  const escaped = petName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.getByRole('link', { name: new RegExp(`^${escaped}$`) });
+}
+// All picker avatar links, in DOM order — used to assert sort_order (AC-17.3: "in sort_order").
+function petPickerAvatarLinks(page) {
+  // Heuristic: every pet-name-only link on the page. index.html's only other links are "Full
+  // history" and the name-card's Change/Set-name (which render as buttons per design.md §3.7,
+  // not links), so this should be exactly the picker's links — revisit if that changes.
+  return page.getByRole('link').filter({ hasNotText: /Full history/ });
+}
+function selectedPetAvatarLink(page) {
+  return page.locator('a[aria-current="true"]');
+}
+
+// ---------------------------------------------------------------------------------------------
+// v1.1: Feeding heatmap (design.md §4.1, contract.md §7.8, spec.md F18)
+// ---------------------------------------------------------------------------------------------
+
+// design.md §4.1: "Every cell is a real <button> (even the non-interactive padding ones,
+// disabled), with aria-label stating the full date and count, e.g.
+// aria-label='Tuesday, September 15: 3 feeds'". design.md §5's copy pattern confirms the
+// "{Weekday}, {Month} {day}: {n} feed(s) / no feeds" shape.
+function heatmapGrid(page) {
+  // No documented role/landmark for the card itself; scope by containing at least one heatmap
+  // cell button (matched by its aria-label shape below), which IS documented.
+  return page.locator(':has(button[aria-label*=": "])').first();
+}
+function heatmapCells(page) {
+  return page.getByRole('button', { name: /^[A-Za-z]+, [A-Za-z]+ \d{1,2}(, \d{4})?: (\d+ feeds?|no feeds)$/i });
+}
+/** A specific cell by its exact accessible name, e.g. "Tuesday, September 15: 3 feeds". */
+function heatmapCellByLabel(page, label) {
+  return page.getByRole('button', { name: label, exact: true });
+}
+function heatmapTodayCell(page) {
+  // Resolved against real markup (frontend/js/ui.js renderHeatmap): the today cell carries
+  // `data-today="true"` in addition to its visual outline, exactly matching the DOM hook the
+  // frontend hand-off promised. `.and()` keeps this scoped to an actual heatmap cell button
+  // (role + accessible-name shape), not just any element that happened to carry the attribute.
+  return heatmapCells(page).and(page.locator('[data-today="true"]'));
+}
+function heatmapLegend(page) {
+  // design.md §5: "Heatmap legend | 0 · 1 · 2 · 3 · 4+"
+  return page.getByText('0 · 1 · 2 · 3 · 4+');
+}
+// design.md §4.1: tapping a count>0 cell "expands an inline panel directly below the grid ...
+// with a small close affordance". Resolved against real markup (frontend/js/ui.js
+// renderHeatmap): `data-heatmap-expanded="true"`, exactly the DOM hook the frontend hand-off
+// promised. `.heatmap__expanded` kept as a fallback only in case a future build renames the
+// attribute but keeps a similarly-named class.
+function heatmapExpandedPanel(page) {
+  return page.locator('[data-heatmap-expanded="true"]').or(page.locator('.heatmap__expanded'));
+}
+// The close (✕) affordance inside the expanded panel (frontend/js/ui.js: aria-label="Close").
+function heatmapExpandedPanelCloseButton(page) {
+  return heatmapExpandedPanel(page).getByRole('button', { name: 'Close', exact: true });
+}
+
+// ---------------------------------------------------------------------------------------------
+// v1.1: CSV export (design.md §4.2, contract.md §7.9, spec.md F19)
+// ---------------------------------------------------------------------------------------------
+
+// design.md §4.2: visible label "Download CSV"; aria-label "Download {pet name}'s feed
+// history as CSV" (AC-19.5). Match on the accessible name (covers both, since an aria-label
+// overrides the visible text as the accessible name) so this also works mid-flight when the
+// visible text is "Preparing…" but the aria-label presumably still names the pet — falls back
+// to the plain visible-text match if aria-label isn't set that way.
+function csvDownloadButton(page, petName) {
+  if (petName) {
+    const escaped = petName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return page
+      .getByRole('button', { name: new RegExp(`Download ${escaped}.s feed history as CSV`) })
+      .or(page.getByRole('button', { name: /Download CSV|Preparing…/ }));
+  }
+  return page.getByRole('button', { name: /Download CSV|Preparing…/ });
+}
+function csvExportFailedText(page) {
+  return page.getByText("Couldn't prepare the download.");
 }
 
 module.exports = {
@@ -230,4 +333,17 @@ module.exports = {
   dayHeading,
   historyEmptyMessage,
   historyBackLink,
+  // v1.1
+  petPickerAvatarLink,
+  petPickerAvatarLinks,
+  selectedPetAvatarLink,
+  heatmapGrid,
+  heatmapCells,
+  heatmapCellByLabel,
+  heatmapTodayCell,
+  heatmapLegend,
+  heatmapExpandedPanel,
+  heatmapExpandedPanelCloseButton,
+  csvDownloadButton,
+  csvExportFailedText,
 };

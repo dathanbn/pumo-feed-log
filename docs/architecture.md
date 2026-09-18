@@ -42,15 +42,15 @@ pumo-feed-log/                     (GitHub repo root)
 │   ├── history.html               full history
 │   ├── build.txt                  one line: ISO timestamp of the latest build commit
 │   ├── css/styles.css
-│   ├── js/config.js               SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, PUMO_PHOTO_URL
+│   ├── js/config.js               SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY only (v1.1: per-pet photo/name moved to the `pets` table, contract.md §4)
 │   ├── js/constants.js            exactly contract.md §7.1
-│   ├── js/logic.js                pure functions only (no DOM, no fetch, no storage)
-│   ├── js/api.js                  the only module that talks to Supabase
+│   ├── js/logic.js                pure functions only (no DOM, no fetch, no storage) — v1.1 adds the day-boundary, heatmap, CSV-formatting and pet-URL functions (§4 below) to this same file, no new module
+│   ├── js/api.js                  the only module that talks to Supabase — v1.1 adds getPets and getAllFeedsForExport (contract.md §6.G, §6.F.2)
 │   ├── js/storage.js              localStorage name helpers, every access in try/catch
-│   ├── js/ui.js                   shared DOM helpers: status region, focus refresh, row + delete confirm
-│   ├── js/home.js                 home screen controller (button state machine)
-│   ├── js/history.js              history screen controller
-│   └── assets/                    icon.svg, favicon-32.png, apple-touch-icon.png, pumo.jpg (optional)
+│   ├── js/ui.js                   shared DOM helpers: status region, focus refresh, row + delete confirm — v1.1 adds the pet-picker and heatmap-cell renderers here too (shared visual vocabulary, not new controllers)
+│   ├── js/home.js                 home screen controller (button state machine) — v1.1: reads the pet from the URL, renders the picker, scopes all calls to that pet's id
+│   ├── js/history.js              history screen controller — v1.1: same pet-scoping, plus the heatmap and CSV button
+│   └── assets/                    icon.svg, favicon-32.png, apple-touch-icon.png, pumo.jpg (optional; zuumi.jpg / banh-mi.jpg optional, not yet supplied — design.md §8)
 ├── backend/
 │   └── schema.sql                 the complete Supabase setup SQL (identical to contract.md §2)
 ├── tests/
@@ -69,22 +69,24 @@ All paths inside `frontend/` are **relative** (`css/styles.css`, never `/css/sty
 
 | Module | Owns | Must not |
 |---|---|---|
-| `config.js` | The three config values | Contain the secret key or DB password, ever |
+| `config.js` | The two config values (v1.1: `PUMO_PHOTO_URL` removed — see `pets.photo_url`, contract.md §1) | Contain the secret key or DB password, ever. Contain any pet-specific value. |
 | `constants.js` | Every number and storage key in contract.md §7.1 | Be duplicated as literals anywhere else |
-| `logic.js` | `startOfLocalDay`, `formatRelative`, `formatFeedLabel`, `formatDayHeading`, `guardState`, `armedLabel`, `deleteConsequence`, `groupByDay`, `sanitizeName`, `newFeedId` | Touch the DOM, network, clock (`now` is always passed in) or storage |
-| `api.js` | `getHomeData`, `logFeed`, `softDeleteFeed`, `getHistoryPage`, timeouts, error normalization (contract.md §6 and §8) | Know about UI state. Send `created_at`. Use the HTTP `DELETE` method |
-| `storage.js` | `getName`, `setName`, `isNamePromptDone`, `setNamePromptDone` | Store anything about feeds |
-| `ui.js` | `announce(text)`, `onFocusRefresh(cb)` (listens for `visibilitychange`→visible, `focus`, `pageshow`, debounced by `FOCUS_REFRESH_DEBOUNCE_MS`, skipped while a load is in flight), the shared row renderer with inline delete confirmation, error panel and banner | Insert user text with `innerHTML` (always use `textContent`) |
-| `home.js` | Home state, the 30 s tick, the Log button state machine, undo notice, name card | |
-| `history.js` | History state, paging, day groups | |
+| `logic.js` | `startOfLocalDay`, `startOfFeedDay`, `feedDayKey`, `formatRelative`, `formatFeedLabel`, `formatDayHeading`, `guardState`, `armedLabel`, `deleteConsequence`, `groupByDay`, `sanitizeName`, `newFeedId`, `buildHeatmap`, `feedsToCsv`, `petSlugFromLocation`, `pathForPet` (contract.md §7.6, §7.8–§7.10) | Touch the DOM, network, clock (`now` is always passed in) or storage |
+| `api.js` | `getPets`, `getHomeData`, `logFeed`, `softDeleteFeed`, `getHistoryPage`, `getAllFeedsForExport`, timeouts, error normalization (contract.md §6 and §8) | Know about UI state. Send `created_at`. Use the HTTP `DELETE` method. Query `feeds` without a `pet_id` filter (except inside `getAllFeedsForExport`'s own already-pet-scoped paging). |
+| `storage.js` | `getName`, `setName`, `isNamePromptDone`, `setNamePromptDone` | Store anything about feeds or the selected pet (pet selection is URL-only, contract.md §7.10 — never localStorage) |
+| `ui.js` | `announce(text)`, `onFocusRefresh(cb)` (listens for `visibilitychange`→visible, `focus`, `pageshow`, debounced by `FOCUS_REFRESH_DEBOUNCE_MS`, skipped while a load is in flight), the shared row renderer with inline delete confirmation, error panel and banner, and (v1.1) the pet-picker renderer and the heatmap grid/cell renderer, shared between `home.js` (picker only) and `history.js` (picker + heatmap) | Insert user text with `innerHTML` (always use `textContent`) |
+| `home.js` | Home state, the 30 s tick, the Log button state machine, undo notice, name card, resolving the pet from the URL and rendering the picker (v1.1) | |
+| `history.js` | History state, paging, day groups, the heatmap and CSV export button (v1.1), same pet resolution as `home.js` | |
 
 ### Home state (in memory only)
 ```
-{ recent: Feed[≤3], todayCount, loadedAt, loadedDayKey, loadStatus: 'loading'|'ready'|'error',
+{ pet: Pet, pets: Pet[],   # resolved once per page load from the URL + getPets() (§10); pet never changes without a navigation
+  recent: Feed[≤3], todayCount, loadedAt, loadedDayKey, loadStatus: 'loading'|'ready'|'error',
   button: 'loading'|'ready'|'guarded'|'checking'|'armed'|'saving'|'logged'|'not-saved'|'load-failed',
-  pendingLog: {id, logged_by} | null, armTimer, undo: {feed, expiresAt, status} | null,
+  pendingLog: {id, pet_id, logged_by} | null, armTimer, undo: {feed, expiresAt, status} | null,
   confirmingDeleteId, consecutiveFailures }
 ```
+`loadedDayKey` (v1.1) is now a **feed-day** key (contract.md §7.6), so the midnight-crossing refresh check described below actually fires at 3 AM.
 
 ### Log button flow (the heart of the app)
 ```
@@ -102,7 +104,7 @@ onLogTap():
   if g.guarded: button = 'armed'; label = armedLabel(g, now); start ARM_TIMEOUT_MS timer → back to 'guarded'; return
   save(newAttempt())
 
-newAttempt() = { id: newFeedId(), logged_by: storage.getName() }   # null if no name
+newAttempt() = { id: newFeedId(), pet_id: state.pet.id, logged_by: storage.getName() }   # null if no name
 
 save(attempt):
   pendingLog = attempt; button = 'saving'
@@ -124,6 +126,22 @@ save(attempt):
 | **Frontend agent** | Yes | Everything buildable: the one-time Supabase setup (applying `backend/schema.sql` via MCP, or checking Dathan's manual setup), all of `frontend/`, `tests/unit/`, the icons, and deploy. |
 | **Backend agent** | **No** | There's no server code to write. The backend is ~25 lines of SQL applied once. A separate agent would add a handoff and give the same four REST calls a second owner, with no parallel work to show for it. The setup is folded into the frontend agent's Task 1 (see tasks.md). |
 | **QA agent** | Yes | Checks every [QA] criterion in spec.md against the real Supabase project and the real deploy, captures every state in design.md §6, takes screenshots and writes `tests/qa-report.md`. |
+
+**v1.1 note:** the same reasoning still holds — the `pets` table and `pet_id` migration (contract.md §2) is a bigger SQL script than v1's, but it's still one script applied once via the Supabase MCP tools, with no ongoing server code. It stays folded into the frontend agent's setup task rather than spawning a separate backend agent.
+
+## 10. Pet URL scheme (v1.1)
+
+Every pet gets a stable URL for its own NFC sticker, built from the same `frontend/index.html` (and `history.html`) with a query string — no new HTML files, no server routing, works identically on GitHub Pages and Cloudflare Pages (contract.md §7.10 has the exact functions):
+
+| Pet | URL | Notes |
+|---|---|---|
+| Pumo | `LIVE_URL` (no query string) | Unchanged from v1 — Pumo's existing sticker keeps working with no rewrite. |
+| Zuumi | `LIVE_URL?pet=zuumi` | New sticker |
+| Banh Mi | `LIVE_URL?pet=banh-mi` | New sticker |
+
+History follows the same rule: `history.html?pet=zuumi` etc., reached via each pet's "Full history" link and returned from via its back link, both built with `pathForPet` so the query string is never dropped mid-navigation.
+
+Adding a 4th pet later (out of scope for v1.1, spec.md §5.1) means: insert its row into `pets` (contract.md §2's `insert … on conflict do nothing` pattern), optionally add its photo the same way Pumo's was added, and write a new `LIVE_URL?pet={slug}` sticker — no code change.
 
 ## 6. Deploy
 
@@ -218,7 +236,7 @@ Either path is fine: doing steps 1–3 by hand, or this one. With this path the 
 ### Step 5: Buy NFC stickers
 1. On Amazon, search **"NTAG213 NFC stickers"**. Packs of 10–50 cost about **$0.30–$1 per sticker**. Round 25–30 mm stickers are the easiest to hit with a phone. NTAG215 or NTAG216 also work, but are unnecessary.
 2. **If the sticker will sit on metal** (a metal tin, lid or scoop), buy stickers labeled **"on-metal"** or **"anti-metal" NTAG213** specifically. Ordinary stickers won't read on metal.
-3. Get a pack with spares: one to practice writing on, and backups.
+3. **v1.1 needs 3 stickers**, one per pet (Pumo's existing one keeps working as-is — see §10 — so only Zuumi's and Banh Mi's are new, but a pack has spares regardless). Get a pack with spares: some to practice writing on, and backups.
 
 ### Step 6: Install NFC Tools on one phone
 1. Install the free **NFC Tools** app by **wakdev**, from the App Store (iPhone 7 or newer) or Google Play (Android with NFC).
@@ -258,13 +276,13 @@ Either path is fine: doing steps 1–3 by hand, or this one. With this path the 
 3. Optional: add a 512×512 PNG app icon (for example made in Canva) as `docs/assets/icon.png`. If you skip it, the build draws a simple cat-head icon.
 4. Start the build (agent-team-app-builder) and point it at `docs/`.
 
-### Step 9: After the build is deployed, program and place the tag
-**This has to come last.** The sticker only stores the app's URL, which doesn't exist until the app is live.
-1. Open LIVE_URL on your phone and confirm the app loads.
-2. Open **NFC Tools** and go to **Write → Add a record → URL / URI**. Select the `https://` prefix, type the rest of LIVE_URL exactly, and tap **OK**.
+### Step 9: After the build is deployed, program and place the tag(s)
+**This has to come last.** The sticker only stores the app's URL, which doesn't exist until the app is live. **v1.1: repeat steps 1–6 for each of Zuumi's and Banh Mi's stickers**, using their URLs from §10 (`LIVE_URL?pet=zuumi`, `LIVE_URL?pet=banh-mi`) — Pumo's existing sticker (already programmed with the bare LIVE_URL) needs no changes.
+1. Open the pet's URL on your phone and confirm the app loads showing that pet.
+2. Open **NFC Tools** and go to **Write → Add a record → URL / URI**. Select the `https://` prefix, type the rest of the URL exactly (including `?pet=zuumi` or `?pet=banh-mi` for those two), and tap **OK**.
 3. Tap **Write**. Hold the top edge of an iPhone, or the middle of the back of an Android phone, flat against the sticker until you see **Write complete**.
-4. Check it: in NFC Tools, go to **Read** and tap the sticker. It should show exactly one URL record with LIVE_URL.
-5. Stick it in its final spot, somewhere a phone can reach flat with nothing metal in between (unless it's an on-metal sticker).
+4. Check it: in NFC Tools, go to **Read** and tap the sticker. It should show exactly one URL record with that pet's URL.
+5. Stick it at that pet's food container, somewhere a phone can reach flat with nothing metal in between (unless it's an on-metal sticker).
 6. Test on all 4 phones:
    - **iPhone:** awake and unlocked, hold the top edge to the sticker, then tap the banner.
    - **Android:** unlocked with NFC on, hold the back to the sticker.
@@ -287,9 +305,11 @@ Either path is fine: doing steps 1–3 by hand, or this one. With this path the 
 
 ## 9. Operating notes (for Dathan, after launch)
 
-- **Project paused** (free tier, after 7 days with no activity): open the Supabase dashboard, select the project and click **Restore** or **Unpause**. No data is lost. Normal daily use keeps it awake.
-- **Restoring a deleted feed** (there's no in-app restore in v1): in the SQL Editor, run `select id, created_at, logged_by, deleted_at from public.feeds where deleted_at is not null order by deleted_at desc limit 20;`, then `update public.feeds set deleted_at = null where id = '<id>';`.
+- **Project paused** (free tier, after 7 days with no activity): open the Supabase dashboard, select the project and click **Restore** or **Unpause**. No data is lost. Normal daily use keeps it awake. **v1.1: a weekly scheduled keep-alive ping was set up outside the app** (a recurring job hitting the "last 3" GET, spec.md §5.1) specifically so this shouldn't come up even during a quiet week — if the paused hint (design.md, "Paused hint") still appears, check that the scheduled ping is still enabled.
+- **Restoring a deleted feed** (there's no in-app restore): in the SQL Editor, run `select id, pet_id, created_at, logged_by, deleted_at from public.feeds where deleted_at is not null order by deleted_at desc limit 20;`, then `update public.feeds set deleted_at = null where id = '<id>';`.
 - **Clearing build and QA test rows before real use (optional):** `delete from public.feeds where logged_by in ('Build-test', 'QA-test');`. This runs as the dashboard's admin role. The app itself can never hard-delete.
-- **Changing the 2-hour window or the daily target:** edit `frontend/js/constants.js` and push.
+- **Changing the 2-hour window, the daily target, or the 3 AM feed-day reset hour:** edit `frontend/js/constants.js` (`FEED_DAY_START_HOUR` for the reset hour) and push.
 - **"Couldn't find the table" right after setup:** run `notify pgrst, 'reload schema';` in the SQL Editor.
-- **The URL changed:** rewrite the sticker with NFC Tools (step 9.2–9.4).
+- **A pet's URL changed:** rewrite that pet's sticker with NFC Tools (step 9.2–9.4). Other pets' stickers are unaffected.
+- **Adding a 4th pet:** see §10's last paragraph — one SQL insert plus one new sticker, no code change.
+- **Getting a full backup of all feeds for all pets at once:** the in-app CSV button (spec.md F19) is per-pet by design; for all pets at once, run `select f.*, p.name as pet from public.feeds f join public.pets p on p.id = f.pet_id where f.deleted_at is null order by f.created_at;` in the SQL Editor and export the result, or download each pet's CSV separately from the app.

@@ -6,47 +6,51 @@
 - **Pumo's personality, used sparingly.** His name is big at the top, next to his photo (or a simple cat-head avatar). The background is a warm cream and there is one line of dry humor in the header: "Don't trust the meows." Everything else is plain and obvious. No mascot animations, no cutesy error messages.
 - **Light and dark mode** follow the system automatically (`prefers-color-scheme`), with no in-app toggle. Set `color-scheme: light dark` and add a `theme-color` meta tag for each scheme.
 - **Desktop** gets the same single column, centered, no wider than 440 px. There is no separate desktop layout.
-- **Colors carry meaning.** Teal means ready or normal. Red is used only for warnings (armed, daily limit reached, not saved). Orange appears only as the decorative ring around Pumo's avatar.
+- **Colors carry meaning.** Blue (`--accent-strong`) means ready, normal or "the active/selected thing" (including the selected pet's avatar ring, v1.1). A warm brown/rust (`--danger`/`--warning`) is used only for warnings and armed/not-saved states.
 
 ## 2. Visual system
+
+**This section documents the "Pumo" Design System palette** (a warm cream/ink/blue system with Fredock type), which replaced the original teal palette described in an earlier draft of this file during a frontend redesign that predates v1.1. The table below is the *shipped* token set — treat it as current, not the historical one.
 
 ### Color tokens (define on `:root` and swap under `@media (prefers-color-scheme: dark)`)
 | Token | Light | Dark | Used for |
 |---|---|---|---|
-| `--bg` | `#FBF7F2` | `#1A1614` | Page background |
-| `--surface` | `#FFFFFF` | `#27211E` | Rows, cards, outlined button fill |
-| `--text` | `#2A211C` | `#F4EEE8` | Main text |
-| `--muted` | `#6B5D54` | `#B8ABA1` | "by Sam", tagline, secondary text |
-| `--border` | `#8C7B70` | `#7A6B62` | Input borders, meaningful outlines |
-| `--divider` | `#EDE4DB` | `#3A322E` | Decorative row dividers only |
-| `--accent` | `#0B6B66` | `#5FC9BF` | Primary button fill, links, focus ring, outlined-button border and text |
-| `--on-accent` | `#FFFFFF` | `#1A1614` | Text on `--accent` |
-| `--warn-text` | `#A3200F` | `#FFA59C` | Warning text and icons |
-| `--warn-fill` | `#A3200F` | `#FF8A7F` | Armed button fill |
-| `--on-warn` | `#FFFFFF` | `#1A1614` | Text on `--warn-fill` |
-| `--warn-soft` | `#FDECEA` | `#3B1A16` | Warning counter pill, not-saved button, error panels |
-| `--pumo` | `#E8833A` | `#E8833A` | Avatar ring only, never text |
+| `--surface-100` | `#FBF2E4` | `#1E1913` | Page background |
+| `--surface-000` | `#FFFDF8` | `#2A231B` | Rows, cards |
+| `--surface-200` | `#EDE1CE` | `#332B21` | Recessed/track surfaces (e.g. progress-bar track) |
+| `--border-strong` | `#8F7E69` | `#7E6B54` | Input borders, outlined-button border, meaningful outlines |
+| `--ink` | `#262019` | `#F3E9D8` | Main text |
+| `--ink-soft` | `#6E6255` | `#C2B29C` | "by Sam", tagline, secondary text |
+| `--accent` | `#BFE1F0` | `#24404C` | Soft fill (e.g. normal counter pill, selected-pet ring background) |
+| `--accent-strong` | `#1B6E93` | `#6FBBDE` | Primary button fill, links, focus ring, selected-pet avatar ring |
+| `--on-accent-strong` | `#FFFFFF` | `#16222A` | Text/icons on `--accent-strong` |
+| `--warning` | `#8A4B12` | `#E7A756` | Warning text and icons |
+| `--warning-bg` | `#F6E1C2` | `#4A341C` | Warning counter pill background |
+| `--danger` | `#A23B2B` | `#E2836F` | Armed/not-saved button fill, delete button, warning-severity states |
+| `--danger-bg` | `#F5DAD3` | `#4A241C` | Delete-confirm panel background |
+| `--on-danger` | `#FFFFFF` | `#1E1913` | Text on `--danger` |
+| `--success` | `#2F7A4F` | `#7FC98F` | Reserved (not currently used on a filled background) |
 
-### Measured contrast (WCAG 2.1)
+There is no separate avatar-ring token (a `--pumo` token existed in an earlier draft, now removed) — the selected pet's avatar ring uses `--accent-strong`, consistent with every other "this is the active/primary thing" use of that token.
+
+### Measured contrast (WCAG 2.1, against the table above)
 | Pair | Light | Dark |
 |---|---|---|
-| text on bg | 14.77 | 15.61 |
-| text on surface | 15.76 | 13.79 |
-| muted on bg | 5.93 | 8.02 |
-| muted on surface | 6.33 | 7.09 |
-| on-accent on accent | 6.35 | 9.06 |
-| accent on surface | 6.35 | 8.01 |
-| accent on bg | 5.95 | 9.06 |
-| warn-text on warn-soft | 6.63 | 8.26 |
-| warn-text on surface | 7.58 | 8.40 |
-| on-warn on warn-fill | 7.58 | 7.87 |
-| muted on warn-soft | 5.53 | n/a |
-| border vs surface (UI boundary, needs 3:1 or more) | 4.05 | 3.11 |
+| ink on surface-100 | 14.65 | 15.92 |
+| ink on surface-000 | 15.66 | 14.08 |
+| ink-soft on surface-100 | 5.87 | 7.68 |
+| ink-soft on surface-000 | 6.27 | 6.80 |
+| on-accent-strong on accent-strong | 5.34 | 9.02 |
+| accent-strong on surface-000 | 5.34 | 7.94 |
+| warning on warning-bg | 6.58 | 8.10 |
+| on-danger on danger | 6.57 (see contract.md §2's `--on-danger` note — measured, not assumed) | 6.41 |
+| danger on surface-000 | 5.02 | 5.11 |
+| border-strong vs surface-000 (UI boundary, needs 3:1 or more) | 3.86 | 3.42 |
 
-If a color changes during the build, re-measure it. Text needs at least 4.5:1, and UI boundaries and large text need at least 3:1.
+If a color changes during a future build, re-measure it — these are the last-measured values, not guarantees. Text needs at least 4.5:1, and UI boundaries and large text need at least 3:1. (The heatmap's own sequential ramp, §4.1, follows a different rule — see spec.md AC-18.3.)
 
 ### Type
-- Font stack: `ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`. This gives iPhones a rounded face and downloads no web fonts.
+- Font: **Fredoka** (Google Fonts — loaded via `<link>` in both HTML files, an intentional exception adopted in the same redesign that replaced §2's palette above; an earlier draft of this file said the stack "downloads no web fonts," which is no longer accurate), falling back to `ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` if the network request fails or is slow.
 - Sizes are in `rem`, with the root at 100%, so system text-size settings scale the whole app. Body text 1.0625rem (17 px). Headline value 2.5rem (40 px) bold. Header name 1.375rem (22 px) bold. Counter and secondary text 0.9375rem (15 px), with the counter semibold.
 - Times use `font-variant-numeric: tabular-nums`.
 
@@ -63,13 +67,21 @@ If a color changes during the build, re-measure it. Text needs at least 4.5:1, a
 
 ## 3. Home screen (`index.html`)
 
+### 3.0 Pet picker (v1.1, new — sits above 3.1's header)
+- A single row of circular avatars, one per pet from `getPets()` (contract.md §6.G), in `sort_order`, above the existing header. 40 px circles, 8 px gaps, horizontally centered (3 pets never need to scroll at 375 px width).
+- The **selected** pet's avatar is larger (48 px, matching the old single-avatar size) with a 2 px `--accent-strong` ring (§2); the other pets' avatars are 40 px, no ring, `opacity: 0.7` until focused/hovered.
+- Each avatar shows the pet's photo (`pets.photo_url`) when set, or a placeholder: a filled circle in a per-species tint (reuse `--accent` family for cats, a new neutral `--border`-family tint for dogs — don't invent a new hue) with the pet's first initial in the header font, bold, centered. Cats and dogs must be visually distinguishable even before reading the initial (e.g. a subtly different icon glyph or shape accent), since "same colored circle, different letter" is easy to misread at a glance.
+- Tapping a non-selected avatar navigates to `pathForPet(slug)` (contract.md §7.10) — a normal in-app navigation (change `location.href`), not a client-side state swap, so the URL bar always reflects the pet on screen and the page can be bookmarked/re-shared per pet.
+- Each avatar is a real `<a href="...">`, `aria-current="true"` on the selected one, and `aria-label="{pet name}"` when there's no visible text label under it (keep it to avatars only, no name captions, to protect the AC-2.3 vertical budget).
+- This replaces the old fixed 44px "avatar in the header" concept from v1 visually — the header's avatar (3.1 below) becomes the *selected* pet's large avatar, i.e. 3.0 and the header's avatar are the same element for the selected pet, not two separate avatars stacked.
+
 ### 3.1 Layout, top to bottom
 ```
 ┌─────────────────────────────────────┐
 │ [refresh-error banner, only if any] │
-│ (◉) Pumo                            │  header: 48px avatar with --pumo ring,
-│     Don't trust the meows.          │  h1 "Pumo", muted tagline
-│                                     │
+│ (◉) Pumo         (z)  (b)           │  picker + header combined (§3.0): selected pet's
+│     Don't trust the meows.          │  large ringed avatar + h1 IS the header avatar;
+│                                     │  the other pets' small avatars sit beside it
 │ Last fed                            │  headline: 17px label
 │ 1h 40m ago                          │  + 40px bold value (one <p>)
 │ [ 3 of 4 today ]                    │  counter pill (warning style at >=4)
@@ -94,7 +106,7 @@ If a color changes during the build, re-measure it. Text needs at least 4.5:1, a
 │ Logging as Sam · Change             │  footer, muted
 └─────────────────────────────────────┘
 ```
-The target heights are chosen so everything down to the Log button fits in 375×553, and the history link also fits in 390×664 (AC-2.3). If it doesn't fit, shrink vertical gaps first, then the avatar (down to 40 px). Never shrink the button below 64 px or the rows below 56 px.
+The target heights are chosen so everything down to the Log button fits in 375×553, and the history link also fits in 390×664 (AC-2.3). If it doesn't fit, shrink vertical gaps first, then the avatar (down to 40 px). Never shrink the button below 64 px or the rows below 56 px. **v1.1 adds the picker row (§3.0) above the header, which eats into the same 553 px budget.** If gap-shrinking and the 40 px avatar floor aren't enough to keep the fit, the next thing to shrink is the picker row's own height (down to a 32 px selected avatar / 28 px others, still with an 8 px gap and 44×44 tap target via padding) — never the recent-list rows or the button. Re-verify AC-2.3 against the real rendered picker; it's a new element in an already tight budget.
 
 ### 3.2 Headline
 - One `<p>` holding `<span class="label">Last fed</span> <span class="value">1h 40m ago</span>`, so screen readers hear "Last fed 1h 40m ago".
@@ -141,8 +153,11 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 ## 4. History screen (`history.html`)
 ```
 ┌─────────────────────────────────────┐
-│ ‹ Pumo                              │  back link to index.html, 44px
+│ ‹ Pumo                              │  back link to index.html, 44px, pet-scoped (§3.0/§4.0)
 │ Feed history                        │  h1
+│ [        Download CSV             ] │  §4.2, outlined button below h1
+│                                     │
+│ [ heatmap: 5 weeks, Sun...Sat ]     │  §4.1, above the feed list
 │                                     │
 │ Today                       2 feeds │  h2 + muted count, right aligned
 │ ┌─────────────────────────────────┐ │
@@ -159,9 +174,24 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 │ [       Show older feeds          ] │  outlined button, only if more exist
 └─────────────────────────────────────┘
 ```
-- It is a plain list: `<section>` per day, `<h2>` heading, `<ul>` of rows. Headings don't stick.
+- It is a plain list: `<section>` per day, `<h2>` heading, `<ul>` of rows. Headings don't stick. Day groups and headings use the **feed day** (contract.md §7.6), so a 1:30 AM feed sits under the previous day's heading — same rule as the home screen's counter.
 - Delete confirmation works exactly as on home (§3.6), and the consequence text uses the loaded history data.
 - There is no Log button on this screen.
+- The back link and the whole page are scoped to whichever pet's URL opened it, per §3.0/contract.md §7.10.
+
+### 4.1 Feeding heatmap (v1.1, new — above the day-grouped list)
+- A `--surface` card, full column width, containing a small legend (4 swatches + "0" / "1" / "2" / "3" / "4+", left to right, muted 13px text under or beside the swatches) and a 7-column grid below it: `Sun Mon Tue Wed Thu Fri Sat` as a muted 12px header row, then `HEATMAP_WEEKS` (5) rows of date cells, oldest week first (top), current (possibly partial) week last (bottom) — so it reads top-to-bottom like a wall calendar, newest at the bottom nearest the list it introduces.
+- Each cell: a rounded-rect (8px radius) roughly square (min 40×40 including gap, so 5 weeks × 7 columns fits 375px width with the page's 16px gutters — do the arithmetic against the real gutter/gap values chosen, this is a floor not an exact spec), the date number in its top-left corner in 11px `--muted`-on-empty / an on-fill-appropriate color on filled tiers, and a fill color from a 5-step sequential ramp (0 = `--surface` or `--divider`, 1 through 4 = increasing-intensity steps of the `--accent` family — check the dataviz skill for the exact ramp method, it must hold WCAG contrast between adjacent steps and for the date-number text sitting on top of each step, in both light and dark).
+- A cell for a future date — the only kind of out-of-range cell that exists, since the grid is anchored on today and always starts on a Sunday (contract.md §7.8) — renders at the 0/empty tier but slightly reduced opacity (0.4) and is not tappable. This only ever affects days later in the *current* (bottom) row, never the first row. A day with genuinely zero feeds (including before the household had this pet) is not out-of-range — it's a normal, tappable, empty-tier cell; there's no way to distinguish "0 feeds" from "pet didn't exist yet" in the data, so don't try to.
+- Today's cell gets a 2px `--accent` (or `--accent-strong`, whichever is defined) outline in addition to its fill, regardless of tier, so "today" is always findable at a glance.
+- Tapping/clicking an in-range cell with `count > 0` expands an inline panel directly below the grid (push content down, no overlay/modal — consistent with this app's no-popup philosophy) listing that day's feeds using the same row look as the list below (time + "by {name}"), with a small close affordance. Tapping a `count === 0` in-range cell either does nothing or shows a one-line "No feeds that day" (frontend agent's call). Only one cell is expanded at once; opening another closes the first.
+- Every cell is a real `<button>` (even the non-interactive padding ones, `disabled`), with `aria-label` stating the full date and count, e.g. `aria-label="Tuesday, September 15: 3 feeds"` — never relying on the visual date number plus color alone.
+- Under `prefers-reduced-motion: reduce`, the expand/collapse is instant (no slide/height transition), consistent with §1's motion rules elsewhere.
+
+### 4.2 Download CSV button (v1.1, new)
+- An outlined button (`.btn.btn--outline`, matching the existing "Show older feeds" visual weight, not the primary accent button — this is a secondary, occasional action), placed directly under the `<h1>` and above the heatmap, full width like other secondary buttons on this screen.
+- Label: "Download CSV". While fetching all pages for the export, it shows a spinner and "Preparing…", disabled, matching the `checking`/`loading` button-state visual language already established for the Log button (design.md §3.4) rather than inventing a new style.
+- `aria-label="Download {pet name}'s feed history as CSV"` (AC-19.5) — the visible label stays short ("Download CSV"); the fuller pet-specific name is accessible-only, since the page's own `<h1>`/pet context already makes it visually obvious which pet.
 
 ## 5. Copy (exact strings)
 | Where | Text |
@@ -191,6 +221,12 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | History empty | No feeds logged yet. |
 | History load error | Can't load history. · Try again |
 | Older page error | Couldn't load older feeds. · Retry |
+| CSV button | Download CSV |
+| CSV button, in flight | Preparing… |
+| CSV export failed | Couldn't prepare the download. · Retry |
+| Heatmap legend | 0 · 1 · 2 · 3 · 4+ |
+| Heatmap empty cell (accessible name pattern) | {Weekday}, {Month} {day}: {n} feed(s) / no feeds |
+| Pet picker (accessible name pattern, per avatar) | {Pet name} |
 
 ## 6. Empty, loading and error states
 
@@ -210,6 +246,8 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | S12 | **"Show older feeds" fails** | The loaded groups stay, and under them: "Couldn't load older feeds." with Retry. |
 | S13 | **Supabase project paused or unreachable** | It looks like S3, S5 or S11. The paused hint appears once 2 requests in a row have failed while `navigator.onLine` isn't false. |
 | S14 | **localStorage unavailable** | No visible error. The name card's Skip or Save simply doesn't persist, and feeds log as "by Someone". |
+| S15 | **CSV export fails partway through paging** (v1.1) | The Download CSV button returns to its normal state; no partial file downloads. Shows "Couldn't prepare the download." with Retry, in the same warn style as other inline errors (frontend agent's call whether this is a transient banner or a persistent line under the button — document the choice). |
+| S16 | **Heatmap cell expanded, then its day's last feed is deleted** (v1.1) | The expanded panel updates to reflect zero feeds for that day within 1 s, consistent with F10's "other screens drop it on their next load or focus" rule, and the cell's own shade/tier recomputes. |
 
 ## 7. Accessibility baseline
 
@@ -237,8 +275,10 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 
 | Asset | Needed? | Source | Spec |
 |---|---|---|---|
-| Pumo photo | Optional | Dathan puts a photo at `docs/assets/pumo.jpg` before the build | The build center-crops it to a square, resizes to 256×256, strips EXIF (phone photos can carry GPS location), keeps it under 100 KB and saves it as `frontend/assets/pumo.jpg`. Shown as a 48 px circle with a 2 px `--pumo` ring. |
-| Avatar fallback | Required | Build agent | `frontend/assets/icon.svg`, the same drawing as the app icon, used when there is no photo. |
+| Pumo photo | Optional | Dathan puts a photo at `docs/assets/pumo.jpg` before the build (already supplied for v1) | The build center-crops it to a square, resizes to 256×256, strips EXIF (phone photos can carry GPS location), keeps it under 100 KB and saves it as `frontend/assets/pumo.jpg`, referenced by `pets.photo_url` (contract.md §1). Shown as a 48 px circle with a 2 px `--accent-strong` ring when selected, 40 px unringed in the picker row otherwise. |
+| Zuumi / Banh Mi photos (v1.1) | Optional, **not yet supplied** | Dathan said he'll add these later at `docs/assets/zuumi.jpg` / `docs/assets/banh-mi.jpg` | Same processing as Pumo's photo when present. Until supplied, `pets.photo_url` stays `null` for these two and they use the placeholder avatar below — this is the expected v1.1 launch state, not a defect. |
+| Placeholder avatar (v1.1, per pet without a photo) | Required for Zuumi and Banh Mi at launch | Build agent draws it (CSS/inline SVG, no image asset needed) | A filled circle, `--accent`-family tint for a cat (`species: 'cat'`), a `--border`-family neutral tint for a dog (`species: 'dog'`), with the pet's first initial centered in the header font. Cats and dogs need a shape/glyph distinction beyond color alone (§3.0) — a simple pair of pointed ear-shapes behind a cat's circle vs. none for a dog is enough; keep it as understated as the existing cat-head icon.svg. |
+| Avatar fallback (pre-v1.1, `Pumo`-specific) | Required | Build agent | `frontend/assets/icon.svg`, the same drawing as the app icon. As of v1.1 this is Pumo's specific fallback (species `cat`, matching the placeholder-avatar rule above) rather than a generic app fallback — the app icon itself (favicons, apple-touch-icon) is unaffected and stays pet-neutral. |
 | App icon | Required | Build agent draws it. Dathan may optionally supply a Canva design at `docs/assets/icon.png` (512×512 PNG), which then takes priority. | `frontend/assets/icon.svg` in a 512×512 viewBox: a `--accent` (`#0B6B66`) rounded square (rx 112) with a simple cream (`#FBF7F2`) cat head (a wide ellipse with two triangle ears) and two small teal eye dots. No text and no emoji, so it renders identically everywhere. |
 | Favicons | Required | Generated from the icon | `<link rel="icon" type="image/svg+xml" href="assets/icon.svg">`, plus `assets/favicon-32.png` (32×32) as a PNG fallback. |
 | Apple touch icon | Required | Generated from the icon | `assets/apple-touch-icon.png`, 180×180, opaque background, linked with `<link rel="apple-touch-icon">`. |

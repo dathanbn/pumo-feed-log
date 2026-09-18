@@ -7,7 +7,7 @@ const { test, expect } = require('../helpers/fixtures');
 const rest = require('../helpers/rest');
 const { gotoHome, gotoHistory, seedQaLoggerName, simulateHiddenThenVisible } = require('../helpers/app');
 const { logButton, headline } = require('../helpers/selectors');
-const { mockHomeData, mockHomeDataDynamic, fakeFeed } = require('../helpers/mock');
+const { mockHomeData, mockHomeDataDynamic, mockPets, fakeFeed } = require('../helpers/mock');
 const { MS } = require('../helpers/time');
 const { QA_LOGGED_BY, CONSTANTS, LIVE_URL } = require('../config');
 const { devices } = require('@playwright/test');
@@ -81,6 +81,11 @@ test.describe('F6 — Reload on load and on focus', () => {
     await seedQaLoggerName(context, QA_LOGGED_BY);
 
     let phase = 'initial'; // 'initial' -> unguarded; 'stale-refetch' -> a fresh recent feed appears
+    // mockHomeDataDynamic doesn't mock getPets() itself (helpers/mock.js's own doc comment) —
+    // without this, initPet()'s real getPets() call hits this sandbox's blocked egress and the
+    // app never gets past its pet-load error state, which was masking this AC's own assertions
+    // behind an unrelated network failure. Not a frontend defect — a QA test-setup gap.
+    await mockPets(page);
     await mockHomeDataDynamic(page, () =>
       phase === 'initial'
         ? { recent: [], todayCount: 0 }

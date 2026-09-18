@@ -6,6 +6,9 @@
 //   AC-5.2  — DB itself rejects a POST/PATCH that tries to set created_at (401/403, 42501)
 //   AC-11.1 — after a soft delete, the row still exists with deleted_at set
 //   AC-11.2 — a direct REST DELETE is rejected (401/403, 42501) and the row still exists
+//   v1.1 (contract.md §2/§6.G, tasks.md Task 1 preflight): GET /pets returns the 3 seeded
+//     rows in sort_order; POST /pets is rejected (401/403, 42501); a feeds insert with no
+//     pet_id is rejected by the not-null constraint.
 //
 // NOTE: on 2026-09-17 this sandbox's egress proxy blocked raw HTTPS to *.supabase.co
 // (403, organization policy — the "network allowlist" case architecture.md §7 step 7.5
@@ -21,11 +24,43 @@
 
 const { test, expect } = require('@playwright/test');
 const rest = require('../helpers/rest');
-const { QA_LOGGED_BY } = require('../config');
+const { QA_LOGGED_BY, PET_SLUGS } = require('../config');
 
 test.describe('Direct REST checks (contract.md §6.F)', () => {
   test.afterAll(async () => {
     await rest.softDeleteAllByLoggedBy(QA_LOGGED_BY);
+  });
+
+  // -----------------------------------------------------------------------------------------
+  // v1.1: pets (contract.md §6.G, §2, tasks.md Task 1 preflight items 1/3/6). These can only
+  // pass once backend/schema.sql has actually been applied to the live project — until then,
+  // expect getPets to fail with 404 PGRST205/42P01 (table doesn't exist) and attemptPostToPets
+  // to fail for the same reason rather than the 42501 it's meant to prove. That distinction
+  // matters: a 404 here means "run the migration", not "the RLS grants are wrong".
+  // -----------------------------------------------------------------------------------------
+
+  test('AC-17 preflight — GET pets returns 200 with exactly the 3 seeded rows, ascending sort_order', async () => {
+    const pets = await rest.getPets({ fresh: true });
+    expect(pets.length).toBe(PET_SLUGS.length);
+    expect(pets.map((p) => p.slug)).toEqual(['pumo', 'zuumi', 'banh-mi']); // sort_order 0,1,2 per contract.md §2
+    expect(pets.map((p) => p.sort_order)).toEqual([0, 1, 2]);
+  });
+
+  test('AC-17 preflight — POST /rest/v1/pets is rejected (401/403, 42501); the pet list is read-only from the client', async () => {
+    const r = await rest.attemptPostToPets();
+    expect([401, 403]).toContain(r.status);
+    expect(r.body && r.body.code).toBe('42501');
+  });
+
+  test('AC-17.7-adjacent — insertFeed requires a real pet_id: an insert with no pet_id (or a bogus one) is rejected', async () => {
+    // Not a contract.md "must fail" table entry verbatim, but follows directly from `pet_id
+    // uuid references public.pets(id)` + `not null` (contract.md §1) — worth a direct check
+    // since a build that forgets to send pet_id would otherwise only be caught by a UI test.
+    const r = await rest.request('POST', '', {
+      body: { logged_by: QA_LOGGED_BY }, // no pet_id at all
+      prefer: 'return=representation',
+    });
+    expect(r.status, `expected a not-null-violation rejection, got ${r.status}: ${r.bodyText}`).toBeGreaterThanOrEqual(400);
   });
 
   test('AC-5.2a — POST with created_at is rejected (401/403, 42501)', async () => {

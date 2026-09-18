@@ -7,7 +7,7 @@ const { test, expect } = require('../helpers/fixtures');
 const rest = require('../helpers/rest');
 const { gotoHome, seedQaLoggerName, simulateHidden, simulateHiddenThenVisible } = require('../helpers/app');
 const { logButton, undoNoticeRegion } = require('../helpers/selectors');
-const { mockHomeData, mockHomeDataDynamic, fakeFeed } = require('../helpers/mock');
+const { mockHomeData, mockHomeDataDynamic, mockPets, fakeFeed } = require('../helpers/mock');
 const { shot } = require('../helpers/screenshot');
 const { MS, pickDaytimeTimezone } = require('../helpers/time');
 const { QA_LOGGED_BY, CONSTANTS, PRIMARY_TIMEZONE, LIVE_URL } = require('../config');
@@ -112,6 +112,9 @@ test.describe('F7 — Recent-feed guard (2 hours)', () => {
     await seedQaLoggerName(contextA, 'QA-test-deviceA');
     let phase = 'initial';
     const pageA = await contextA.newPage();
+    // mockHomeDataDynamic doesn't mock getPets() itself — see the AC-6.3 note in
+    // specs/06-refresh-focus.spec.js for why this is required, not optional, before gotoHome.
+    await mockPets(pageA);
     await mockHomeDataDynamic(pageA, () =>
       phase === 'initial' ? { recent: [], todayCount: 0 } : { recent: [fakeFeed({ agoMs: MS.minutes(2) })], todayCount: 1 }
     );
@@ -155,6 +158,7 @@ test.describe('F7 — Recent-feed guard (2 hours)', () => {
 
   test('AC-7.7 — right after a successful log, the next tap arms instead of logging', async ({ page }) => {
     let state = { recent: [], todayCount: 0 };
+    await mockPets(page);
     await mockHomeDataDynamic(page, () => state);
     await gotoHome(page);
     await expect(logButton(page)).toHaveText('Log a feed');
@@ -181,6 +185,7 @@ test.describe('F7 — Recent-feed guard (2 hours)', () => {
 
   test('AC-7.8 — undoing the only feed from the last 2h removes the recent guard', async ({ page }) => {
     let state = { recent: [], todayCount: 0 };
+    await mockPets(page);
     await mockHomeDataDynamic(page, () => state);
     await gotoHome(page);
 

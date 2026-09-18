@@ -16,8 +16,9 @@ const {
   nameInput,
   refreshBanner,
   undoNoticeRegion,
+  selectedPetAvatarLink,
 } = require('../helpers/selectors');
-const { mockHomeData, mockHomeDataDynamic, mockHistoryFirstPage, mockSuccessfulWrites, fakeFeed } = require('../helpers/mock');
+const { mockHomeData, mockHomeDataDynamic, mockPets, mockHistoryFirstPage, mockSuccessfulWrites, fakeFeed } = require('../helpers/mock');
 const net = require('../helpers/network');
 const { scanForSeriousViolations, summarizeViolations, assertTapTarget } = require('../helpers/a11y');
 const { shot } = require('../helpers/screenshot');
@@ -46,19 +47,27 @@ test.describe('F16 — Look and feel', () => {
     await gotoHome(page);
     await expect(page.getByRole('heading', { level: 1, name: 'Pumo' })).toBeVisible();
 
-    const configPath = path.join(FRONTEND_DIR, 'js', 'config.js');
-    const configSrc = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
-    const photoConfigured = /PUMO_PHOTO_URL\s*=\s*['"]/.test(configSrc);
-
-    const img = page.locator('.avatar img, #avatar img').first();
-    await expect(img).toBeVisible();
-    if (photoConfigured) {
-      await expect(img).toHaveAttribute('alt', 'Pumo');
+    // v1.1: the avatar comes from the `pets` table's own `photo_url` column (contract.md §1/
+    // §6.G), not a `PUMO_PHOTO_URL` config constant — that literal is retired (AC-17.7,
+    // contract.md §4's api.js "must not" list) and design.md §3.0 makes the SELECTED pet's
+    // picker avatar double as the header avatar (3.0/3.1 are "the same element"). Scope to it
+    // via selectedPetAvatarLink (a[aria-current="true"]) rather than a leftover v1-era
+    // `.avatar img`/`#avatar img` locator, which doesn't match this markup at all (confirmed by
+    // direct repro: 0 matches) and was the actual cause of this AC's earlier failure.
+    const avatarWrap = selectedPetAvatarLink(page).locator('.pet-avatar');
+    await expect(avatarWrap).toBeVisible();
+    const img = avatarWrap.locator('.pet-avatar__img');
+    if (await img.count()) {
+      // A photo is configured (default seed data: Pumo's photo_url is set) — decorative, since
+      // the h1 already says "Pumo" (design.md §7): the wrapping .pet-avatar is aria-hidden and
+      // the <img> itself carries alt="" (frontend/js/ui.js buildPetAvatar).
+      await expect(img).toBeVisible();
+      await expect(avatarWrap).toHaveAttribute('aria-hidden', 'true');
+      await expect(img).toHaveAttribute('alt', '');
     } else {
-      // Fallback SVG avatar is aria-hidden because the h1 already says "Pumo" (design.md §7).
-      const ariaHidden = await img.getAttribute('aria-hidden');
-      const alt = await img.getAttribute('alt');
-      expect(ariaHidden === 'true' || alt === '').toBeTruthy();
+      // No photo configured for the selected pet — SVG placeholder fallback.
+      await expect(avatarWrap.locator('svg')).toBeVisible();
+      await expect(avatarWrap).toHaveAttribute('aria-hidden', 'true');
     }
   });
 
@@ -75,9 +84,13 @@ test.describe('F16 — Look and feel', () => {
     const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 
     expect(darkBg, 'background should change immediately when the emulated scheme changes').not.toBe(lightBg);
-    // design.md §2: light --bg #FBF7F2 = rgb(251,247,242); dark --bg #1A1614 = rgb(26,22,20).
-    expect(lightBg).toBe('rgb(251, 247, 242)');
-    expect(darkBg).toBe('rgb(26, 22, 20)');
+    // design.md §2 (corrected, post-redesign "Pumo" Design System palette — D5's original
+    // report entry was mismeasured against a stale pre-redesign doc value, not a real frontend
+    // defect; see qa-report.md §4/§10): light --surface-100 #FBF2E4 = rgb(251,242,228);
+    // dark --surface-100 #1E1913 = rgb(30,25,19). This is the page background token
+    // (frontend/css/styles.css `body { background: var(--surface-100); }`).
+    expect(lightBg).toBe('rgb(251, 242, 228)');
+    expect(darkBg).toBe('rgb(30, 25, 19)');
   });
 
   test('AC-16.3 — 1440x900: single column, centered, no wider than 440px', async ({ page }) => {
@@ -299,12 +312,37 @@ test.describe('F16 — Look and feel', () => {
   });
 
   test('AC-16.5e — S13 paused hint (2 consecutive failures while online)', async ({ page }) => {
+    // Mock pets to succeed first: net.abortRequests below only targets the feeds endpoint (by
+    // design — see its own doc comment), so without this the real (sandbox-blocked) /rest/v1/pets
+    // call fails on its own and sends the app down the unrelated pet-load-error path ("Try
+    // again" with no paused-hint tracking) instead of the feeds-load-error path this test means
+    // to exercise. Confirmed by direct repro: with pets mocked, the real feeds-only failure path
+    // correctly shows the paused hint after 2 consecutive failures.
+    await mockPets(page);
     await net.abortRequests(page, { methodFilter: 'GET' });
     await gotoHome(page); // 1st failure -> plain error
     await expect(page.getByText("Can't load feeds")).toBeVisible({ timeout: 15000 });
     await logButton(page).click(); // load-failed's label is "Try again"; this retries and fails a 2nd time
     await expect(page.getByText(/database may be paused/i)).toBeVisible({ timeout: 15000 });
     await shot(page, { n: 13, screen: 'home', state: 'paused-hint', scheme: 'light' });
+  });
+
+  // Regression test for defect D3 (fix round 1): renderPetLoadError() used to set
+  // buttonText/onButtonClick on #error-block's own panel button AND relabel #log-button to
+  // "Try again" at the same time, so both were visible at once — a Playwright strict-mode
+  // violation ("resolved to 2 elements") the moment a test looked for the retry control by its
+  // accessible name. No test in this file currently exercises the PET-load-error panel
+  // specifically (AC-16.5e above exercises the FEEDS-load-error panel instead, which was never
+  // the buggy path), so this is added as its own permanent regression check rather than relying
+  // on a defect writeup alone.
+  test('D3 regression — exactly one "Try again" control after two consecutive pet-load failures', async ({
+    page,
+  }) => {
+    await net.abortRequests(page, { urlPattern: `${require('../config').SUPABASE_URL}/rest/v1/pets**` });
+    await gotoHome(page); // 1st failure: pet-load-error panel
+    await expect(page.getByRole('button', { name: /try again/i })).toHaveCount(1, { timeout: 15000 });
+    await page.getByRole('button', { name: /try again/i }).click(); // retries and fails a 2nd time
+    await expect(page.getByRole('button', { name: /try again/i })).toHaveCount(1, { timeout: 15000 });
   });
 
   // Split into independent tests (rather than one long chained scenario) so that a failure
