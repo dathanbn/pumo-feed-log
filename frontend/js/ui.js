@@ -9,21 +9,25 @@ import { formatTime, formatFeedLabel, deleteAriaLabel } from './logic.js';
 // Static, trusted, hand-written SVG markup only. Never combined with feed or user data.
 const ICONS = {
   trash:
-    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>',
+    '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>',
   warning:
-    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 22 20H2L12 3.5Z"/><path d="M12 10v4"/><path d="M12 17.2v.01"/></svg>',
+    '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5L18 17H2z"/><path d="M10 8v4"/><circle cx="10" cy="14.3" r="0.6" fill="currentColor" stroke="none"/></svg>',
   check:
-    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5.5 5.5L20 6"/></svg>',
+    '<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>',
   chevron:
-    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
+    '<svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4l6 6-6 6"/></svg>',
   spinner:
     '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9"/></svg>',
+  // Decorative only (the design system's paw doodle) — never a control, never doubles as a
+  // functional icon. Used once near "Last fed" and once on the name-prompt card.
+  paw:
+    '<svg viewBox="0 0 20 20" width="16" height="16" fill="currentColor"><ellipse cx="4.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(-16 4.2 7.8)"/><ellipse cx="8.1" cy="4.4" rx="2.6" ry="3.6" transform="rotate(-8 8.1 4.4)"/><ellipse cx="12.3" cy="4.4" rx="2.6" ry="3.6" transform="rotate(8 12.3 4.4)"/><ellipse cx="16.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(16 16.2 7.8)"/><path d="M10.2 9.4 C13.6 9.4 16.8 11.6 17 14.4 C17.2 16.6 15.8 18.2 13.6 18.6 C12.8 18.8 12 18.4 11.6 17.7 C11.4 18.4 11 18.8 10.2 18.8 C9.4 18.8 9 18.4 8.8 17.7 C8.4 18.4 7.6 18.8 6.8 18.6 C4.6 18.2 3.2 16.6 3.4 14.4 C3.6 11.6 6.8 9.4 10.2 9.4 Z"/></svg>',
 };
 
 /**
  * A static, trusted icon wrapped in an aria-hidden span. `name` must be a key of ICONS —
  * this never receives feed or user-supplied text.
- * @param {'trash'|'warning'|'check'|'chevron'|'spinner'} name
+ * @param {'trash'|'warning'|'check'|'chevron'|'spinner'|'paw'} name
  * @param {string} [extraClass]
  * @returns {HTMLElement}
  */
