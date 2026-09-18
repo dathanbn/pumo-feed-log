@@ -464,8 +464,9 @@ function csvField(value) {
  */
 export function feedsToCsv(feeds, pet) {
   const rows = [['date', 'pet', 'time', 'feeder']];
-  const oldestFirst = [...feeds].reverse();
-  for (const feed of oldestFirst) {
+  // v1.3: rows are newest-first, matching `feeds`' own input order (getAllFeedsForExport,
+  // §6.F.2) — Dathan's ask, so the most recent feed reads first when the file is opened.
+  for (const feed of feeds) {
     const d = new Date(feed.created_at);
     rows.push([feedDayKey(d), pet.name, formatTime(d), feed.logged_by || 'Someone']);
   }

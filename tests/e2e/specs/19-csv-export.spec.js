@@ -198,7 +198,7 @@ test.describe('F19 — CSV export', () => {
     }
   });
 
-  test('AC-19.3c — feedsToCsvExpected fixture check: null logged_by -> "Someone", oldest-first row order, feed-day date column', async () => {
+  test('AC-19.3c — feedsToCsvExpected fixture check: null logged_by -> "Someone", newest-first row order (v1.3), feed-day date column', async () => {
     // Pure-fixture check against QA's own reimplementation (sanity that the helper itself is
     // correct before relying on it above) — not a browser test.
     const pet = { slug: 'pumo', name: 'Pumo' };
@@ -209,9 +209,9 @@ test.describe('F19 — CSV export', () => {
     const csv = feedsToCsvExpected(feeds, pet);
     const rows = parseCsv(csv);
     expect(rows[0]).toEqual(['date', 'pet', 'time', 'feeder']);
-    // oldest-first: the Sam row (2026-09-16) comes before the null row (2026-09-17).
-    expect(rows[1][3]).toBe('Sam, Jr.');
-    expect(rows[2][3]).toBe('Someone');
+    // v1.3, newest-first: the null row (2026-09-17) comes before the Sam row (2026-09-16).
+    expect(rows[1][3]).toBe('Someone');
+    expect(rows[2][3]).toBe('Sam, Jr.');
     expect(csv.startsWith('date,pet,time,feeder\r\n')).toBe(true);
   });
 
@@ -245,9 +245,12 @@ test.describe('F19 — CSV export', () => {
       await gotoHistory(page, 'pumo');
       const btn = csvDownloadButton(page, 'Pumo');
       await btn.click();
-      // design.md §4.2: "shows a spinner and 'Preparing…', disabled".
-      await expect(btn).toHaveText(/Preparing…/, { timeout: 3000 });
+      // design.md §4.2 (v1.3: icon-only, no visible "Preparing…" text) — the icon swaps to the
+      // spinner and the button disables.
+      await expect(btn.locator('.icon--spinner')).toBeVisible({ timeout: 3000 });
       await expect(btn).toBeDisabled();
+      // aria-label stays the button's sole accessible name throughout (unchanged by busy state).
+      await expect(btn).toHaveAttribute('aria-label', "Download Pumo's feed history as CSV");
       await shot(page, { n: 19, screen: 'history', state: 'csv-preparing', scheme: 'light' });
     } finally {
       await rest.softDeleteById(row.id).catch(() => {});
@@ -286,10 +289,10 @@ test.describe('F19 — CSV export', () => {
     // documented call) a persistent line under the button — check the build notes
     // (tests/qa-report.md §5) for which was chosen once known.
     await expect(csvExportFailedText(page)).toBeVisible({ timeout: 10000 });
-    // v1.2 (design.md §4.2): the visible label shortened to just "CSV" (was "Download CSV" in
-    // v1.1) — the fuller wording lives only in the aria-label now (checked separately, AC-19.6).
-    await expect(btn).toHaveText(/CSV/, { timeout: 5000 }); // back to normal, not stuck "Preparing…"
-    await expect(btn).not.toHaveText(/Preparing/);
+    // v1.3 (design.md §4.2): icon-only, no visible text at all — back to normal means the
+    // download icon is back and the spinner is gone, not stuck mid-"preparing".
+    await expect(btn.locator('.icon--download')).toBeVisible({ timeout: 5000 });
+    await expect(btn.locator('.icon--spinner')).toHaveCount(0);
     await expect(btn).toBeEnabled();
     expect(downloadFired, 'no partial file should ever download on a failed export').toBe(false);
     await shot(page, { n: 19, screen: 'history', state: 'csv-failed', scheme: 'light' });
@@ -325,12 +328,14 @@ test.describe('F19 — CSV export', () => {
   // -----------------------------------------------------------------------------------------
   // v1.2, AC-19.6 (contract.md's "v1.2 change note", design.md §4.1/§4.2, architecture.md §4's
   // "Heatmap card DOM shape (v1.2 change)" note): the button moved off its own full-width row
-  // under <h1> into the heatmap card's own top-right header, restyled subtle (.btn--text),
-  // with a short "CSV" visible label — but its aria-label, busy-state behavior and keyboard
-  // reachability (already covered by AC-19.5 above) are unchanged.
+  // under <h1> into the heatmap card's own header, restyled subtle (.btn--text). v1.3, AC-22.1
+  // (spec.md F22, design.md §4.2): the visible "CSV" label is gone entirely — icon only — and
+  // the button now sits inline with the heatmap legend within that same header row, rather than
+  // alone at the top-right. Its aria-label, busy-state behavior and keyboard reachability
+  // (already covered by AC-19.5 above) are unchanged by either move.
   // -----------------------------------------------------------------------------------------
 
-  test('AC-19.6a — the button now lives inside #heatmap-card\'s .heatmap__header, top-right, styled .btn--text', async ({
+  test('AC-19.6a / AC-22.1 — the button lives inside #heatmap-card\'s .heatmap__header, inline with the legend, icon-only, styled .btn--text', async ({
     page,
   }) => {
     await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })]);
@@ -338,40 +343,49 @@ test.describe('F19 — CSV export', () => {
     const btn = csvDownloadButton(page, 'Pumo');
     await expect(btn).toBeVisible();
 
-    // Architecture.md §4's documented DOM shape: #csv-button lives inside .heatmap__header,
-    // itself inside #heatmap-card (a child, not the whole card) — not its own full-width row
-    // directly under <h1> any more (that was the v1.1 shape).
+    // Architecture.md §4's documented DOM shape: #csv-button and #heatmap-legend both live
+    // inside .heatmap__header, itself inside #heatmap-card — not the button's own full-width
+    // row directly under <h1> (v1.1) nor alone in the header (v1.2).
     const header = page.locator('.heatmap__header');
+    const legend = page.locator('#heatmap-legend');
     await expect(header).toBeVisible();
+    await expect(legend).toBeVisible();
     const isInsideHeader = await btn.evaluate((el, headerEl) => headerEl.contains(el), await header.elementHandle());
     expect(isInsideHeader, '#csv-button must be a descendant of .heatmap__header').toBe(true);
+    const legendInsideHeader = await legend.evaluate((el, headerEl) => headerEl.contains(el), await header.elementHandle());
+    expect(legendInsideHeader, '#heatmap-legend must be a descendant of .heatmap__header (v1.3)').toBe(true);
     const card = page.locator('#heatmap-card');
     const headerInsideCard = await header.evaluate((el, cardEl) => cardEl.contains(el), await card.elementHandle());
     expect(headerInsideCard, '.heatmap__header must be a descendant of #heatmap-card').toBe(true);
 
     // Restyled to the app's existing subtle .btn--text variant (design.md §4.2), not the
-    // v1.1 outlined full-width style.
+    // v1.1 outlined full-width style, plus the v1.3 icon-only sizing variant.
     await expect(btn).toHaveClass(/btn--text/);
+    await expect(btn).toHaveClass(/btn--icon-only/);
     await expect(btn).not.toHaveClass(/btn--outline/);
     await expect(btn).not.toHaveClass(/btn--full/);
 
-    // Right-aligned within its header row: the header's own flex box should place the button
-    // flush to the header's right edge (design.md's "right-aligned"), not stretched full width.
+    // Inline with the legend, at the header's right edge: the legend sits to the button's left
+    // (design.md §4.1/§4.2's "inline with the legend"), and the compact icon-only button is
+    // still flush against the header's right edge, same geometry rule as v1.2's right-alignment.
     const headerBox = await header.boundingBox();
     const btnBox = await btn.boundingBox();
-    expect(btnBox.width, 'the compact CSV button must not stretch to the header\'s full width').toBeLessThan(headerBox.width * 0.6);
+    const legendBox = await legend.boundingBox();
+    expect(legendBox.x, 'the legend should sit to the left of the CSV button').toBeLessThan(btnBox.x);
+    expect(btnBox.width, 'the icon-only CSV button must not stretch to the header\'s full width').toBeLessThan(headerBox.width * 0.3);
     expect(btnBox.x + btnBox.width, 'the button should sit at (or very near) the header\'s right edge').toBeGreaterThan(
       headerBox.x + headerBox.width - 8
     );
 
-    // Short visible label "CSV" (design.md §4.2: shortened from "Download CSV"), while the
-    // aria-label still carries the fuller wording unchanged from v1.1 (AC-19.5).
-    await expect(btn).toHaveText(/^\s*CSV\s*$/);
-    await expect(btn).not.toHaveText(/Download CSV/);
+    // No visible text at all now (v1.3) — only the aria-label carries the button's name.
+    await expect(btn).toHaveText('');
     await expect(btn).toHaveAttribute('aria-label', "Download Pumo's feed history as CSV");
+    // The 44×44 tap target is unchanged even though the visible icon is small (design.md §7).
+    expect(btnBox.width, 'CSV button tap target must stay at least 44px wide').toBeGreaterThanOrEqual(44);
+    expect(btnBox.height, 'CSV button tap target must stay at least 44px tall').toBeGreaterThanOrEqual(44);
   });
 
-  test('AC-19.6b — busy state (icon->spinner, "Preparing…", disabled) and keyboard reachability are unchanged by the restyle/move', async ({
+  test('AC-19.6b — busy state (icon->spinner, disabled) and keyboard reachability are unchanged by the restyle/move', async ({
     page,
   }) => {
     await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })], { delayMs: 1500 });
@@ -383,7 +397,8 @@ test.describe('F19 — CSV export', () => {
     // to assert against.
     await net.addLatency(page, 2000, { urlPattern: `${SUPABASE_URL}/rest/v1/feeds**`, methodFilter: 'GET' });
     await btn.click();
-    await expect(btn).toHaveText(/Preparing…/, { timeout: 3000 });
+    // v1.3: no visible "Preparing…" text — the icon swaps to the spinner instead.
+    await expect(btn.locator('.icon--spinner')).toBeVisible({ timeout: 3000 });
     await expect(btn).toBeDisabled();
     // aria-label is unchanged even mid-flight (design.md §4.2: "the aria-label ... unchanged
     // from v1.1" — AC-19.6's own "unchanged accessible name" requirement).
@@ -425,7 +440,7 @@ test.describe('F19 — CSV export', () => {
 
     await net.addLatency(page, 2000, { urlPattern: `${SUPABASE_URL}/rest/v1/feeds**`, methodFilter: 'GET' });
     await btn.click();
-    await expect(btn).toHaveText(/Preparing…/, { timeout: 3000 });
+    await expect(btn.locator('.icon--spinner')).toBeVisible({ timeout: 3000 });
     await shot(page, { n: 19, screen: 'history', state: 'csv-header-preparing', scheme });
   });
 });

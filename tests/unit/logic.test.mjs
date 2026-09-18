@@ -591,13 +591,13 @@ describe('feedsToCsv (v1.1, contract.md §7.9)', () => {
     assert.ok(csv.split('\r\n')[1].endsWith(',Someone'));
   });
 
-  test('row order is oldest-first (reversed from the newest-first input)', () => {
+  test('row order is newest-first (v1.3, same order as the input)', () => {
     const newer = { id: 'n', created_at: new Date(2026, 8, 16, 10, 0).toISOString(), logged_by: 'A' };
     const older = { id: 'o', created_at: new Date(2026, 8, 15, 10, 0).toISOString(), logged_by: 'B' };
     const csv = feedsToCsv([newer, older], pet); // newest-first input, like getAllFeedsForExport
     const lines = csv.trim().split('\r\n');
-    assert.ok(lines[1].endsWith(',B'), `expected the older feed first, got: ${lines[1]}`);
-    assert.ok(lines[2].endsWith(',A'), `expected the newer feed second, got: ${lines[2]}`);
+    assert.ok(lines[1].endsWith(',A'), `expected the newer feed first, got: ${lines[1]}`);
+    assert.ok(lines[2].endsWith(',B'), `expected the older feed second, got: ${lines[2]}`);
   });
 
   test('the date column uses the feed day, not the calendar day, for a 1:30 AM feed', () => {

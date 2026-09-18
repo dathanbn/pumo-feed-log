@@ -57,8 +57,9 @@ export const COPY = {
   historyEmpty: 'No feeds logged yet.',
   olderPageError: "Couldn't load older feeds.",
   refreshBannerPrefix: "Couldn't refresh. Showing feeds as of ",
-  csvButtonLabel: 'CSV', // v1.2: shortened visible label — the full wording moved to the aria-label
-  csvPreparing: 'Preparing…',
+  // v1.3: csvButtonLabel/csvPreparing removed — the button dropped its visible text entirely
+  // (icon only, design.md §4.2); the aria-label (set directly in history.js) is now its sole
+  // accessible name, same string it always was.
   csvFailed: "Couldn't prepare the download.",
   heatmapLegend: ['0', '1', '2', '3', '4+'],
 };
@@ -694,9 +695,45 @@ function heatmapCellLabel(cell) {
 }
 
 /**
- * Renders the heatmap card (legend, Sun–Sat header, weeks grid, and the expanded-day panel when
- * one is open) into `container`, replacing its contents. Stateless/presentational — the caller
- * owns which cell (if any) is expanded and supplies that day's feeds to show. (design.md §4.1)
+ * Renders the heatmap's color legend (design.md §4.1/§4.2). v1.3: split out of renderHeatmap()
+ * below and moved into the heatmap card's static `.heatmap__header`, inline with the CSV
+ * button, since the legend never depends on data — unlike the grid, it has no reason to live
+ * inside the node renderHeatmap() clears and rebuilds. Stateless and idempotent: safe to call
+ * more than once, each call just replaces `container`'s previous contents.
+ * @param {HTMLElement} container
+ */
+export function renderHeatmapLegend(container) {
+  container.textContent = '';
+  // design.md's copy table (§5) gives the legend's text as the single literal string
+  // "0 · 1 · 2 · 3 · 4+"; its §4.1 prose separately describes per-tier color swatches paired
+  // with their number. Both are honored here: each tier still gets its own colored swatch
+  // (aria-hidden, decorative) immediately next to its number, and a " · " separator between
+  // tiers means the legend's overall text content reads exactly the copy table's string.
+  COPY.heatmapLegend.forEach((label, tier) => {
+    if (tier > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'heatmap__legend-sep';
+      sep.textContent = ' · ';
+      container.appendChild(sep);
+    }
+    const item = document.createElement('span');
+    item.className = 'heatmap__legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = `heatmap__legend-swatch heat-cell--tier-${tier}`;
+    swatch.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.textContent = label;
+    item.append(swatch, text);
+    container.appendChild(item);
+  });
+}
+
+/**
+ * Renders the heatmap card's data-dependent portion (Sun–Sat header, weeks grid, and the
+ * expanded-day panel when one is open) into `container`, replacing its contents. The legend
+ * (design.md §4.1) is no longer built here as of v1.3 — see renderHeatmapLegend() above.
+ * Stateless/presentational — the caller owns which cell (if any) is expanded and supplies that
+ * day's feeds to show. (design.md §4.1)
  * @param {HTMLElement} container
  * @param {object} opts
  * @param {{weeks: Array<Array<object>>}} opts.heatmap - buildHeatmap() result
@@ -709,32 +746,6 @@ export function renderHeatmap(container, { heatmap, expandedKey, expandedFeeds, 
   container.textContent = '';
   container.setAttribute('role', 'group');
   container.setAttribute('aria-label', 'Feeding heatmap, last five weeks');
-
-  // design.md's copy table (§5) gives the legend's text as the single literal string
-  // "0 · 1 · 2 · 3 · 4+"; its §4.1 prose separately describes per-tier color swatches paired
-  // with their number. Both are honored here: each tier still gets its own colored swatch
-  // (aria-hidden, decorative) immediately next to its number, and a " · " separator between
-  // tiers means the legend's overall text content reads exactly the copy table's string.
-  const legend = document.createElement('div');
-  legend.className = 'heatmap__legend';
-  COPY.heatmapLegend.forEach((label, tier) => {
-    if (tier > 0) {
-      const sep = document.createElement('span');
-      sep.className = 'heatmap__legend-sep';
-      sep.textContent = ' · ';
-      legend.appendChild(sep);
-    }
-    const item = document.createElement('span');
-    item.className = 'heatmap__legend-item';
-    const swatch = document.createElement('span');
-    swatch.className = `heatmap__legend-swatch heat-cell--tier-${tier}`;
-    swatch.setAttribute('aria-hidden', 'true');
-    const text = document.createElement('span');
-    text.textContent = label;
-    item.append(swatch, text);
-    legend.appendChild(item);
-  });
-  container.appendChild(legend);
 
   const weekdayHeader = document.createElement('div');
   weekdayHeader.className = 'heatmap__weekdays';

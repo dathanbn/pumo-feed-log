@@ -25,6 +25,7 @@ import {
   errorBodyLines,
   COPY,
   renderHeatmap,
+  renderHeatmapLegend,
   icon,
 } from './ui.js';
 
@@ -39,9 +40,13 @@ const csvButtonEl = document.getElementById('csv-button');
 const csvErrorEl = document.getElementById('csv-error');
 const heatmapCardEl = document.getElementById('heatmap-card');
 // v1.2: renderHeatmap() now clears/rebuilds only this inner node, so the static
-// .heatmap__header (holding the CSV button) survives the heatmap's own re-renders.
-// (architecture.md §4's "Heatmap card DOM shape (v1.2 change)" note)
+// .heatmap__header (holding the legend and the CSV button, v1.3) survives the heatmap's own
+// re-renders. (architecture.md §4's "Heatmap card DOM shape" note)
 const heatmapContentEl = document.getElementById('heatmap-content');
+const heatmapLegendEl = document.getElementById('heatmap-legend');
+// v1.3: the legend never depends on data, so — unlike heatmapContentEl above — it's rendered
+// once here at module load, not on every renderHeatmapCard() call.
+renderHeatmapLegend(heatmapLegendEl);
 const historyBodyEl = document.getElementById('history-body');
 const showOlderBtn = document.getElementById('show-older');
 const olderErrorEl = document.getElementById('older-error');
@@ -139,17 +144,19 @@ function onHeatmapCellClick(cell) {
 
 // ---- CSV export (design.md §4.2, contract.md §6.F.2, §7.9) --------------------------------------
 // v1.2: restyled from .btn--outline.btn--full to the existing (previously unused) .btn--text
-// variant, moved into the heatmap card's own header, and its visible label shortened to "CSV" —
-// the aria-label (below) is unchanged and now carries more of the weight (design.md §4.2).
+// variant and moved into the heatmap card's own header. v1.3: dropped the visible "CSV" label
+// entirely — icon only now, inline with the legend — so the aria-label (below) is the button's
+// sole accessible name, same as it already was in practice (aria-label always won over the
+// visible text content for the accessible-name computation, so this drops no information).
 function renderCsvButton() {
   csvButtonEl.disabled = state.csvStatus === 'preparing';
   csvButtonEl.textContent = '';
-  csvButtonEl.className = 'btn btn--text';
+  csvButtonEl.className = 'btn btn--text btn--icon-only';
   if (state.csvStatus === 'preparing') {
     csvButtonEl.classList.add('is-checking');
-    csvButtonEl.append(icon('spinner', 'spin'), document.createTextNode(` ${COPY.csvPreparing}`));
+    csvButtonEl.append(icon('spinner', 'spin'));
   } else {
-    csvButtonEl.append(icon('download'), document.createTextNode(` ${COPY.csvButtonLabel}`));
+    csvButtonEl.append(icon('download'));
   }
   csvButtonEl.setAttribute('aria-label', `Download ${state.pet.name}'s feed history as CSV`);
 

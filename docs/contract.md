@@ -6,6 +6,8 @@ Everything in the app depends on this one interface: **the `public.pets` and `pu
 
 **v1.2 change note:** Zuumi and Banh Mi now have real photos (no schema change — `photo_url` already supported this). Two new things: the client can now correct a feed's logged time (widens the `created_at` update grant, adds a DB-level "not in the future" check — §6.H, §7.11), and the CSV button moves into the heatmap card's header, restyled as a subtle text button (design.md §4.2 — no contract change, UI only).
 
+**v1.3 change note:** a polish pass, no schema change. `feedsToCsv` (§7.9) now emits rows newest-first instead of re-sorting oldest-first. The CSV button drops its visible label (icon-only) and sits inline with the heatmap legend rather than alone (design.md §4.1/§4.2 — UI only). Zuumi's and Banh Mi's photo assets were re-cropped (nose centered, same files/paths — no `photo_url` change) and the pet-picker avatar's visual size increased slightly (design.md §3.1 — UI only).
+
 ## 1. The tables
 
 ### `public.pets`
@@ -430,7 +432,7 @@ Worked check: if today is Thursday, `gridEnd` is the Saturday 2 days later, `gri
 Each cell's date is a **feed day**, not a calendar day: the square labeled with a given date's number represents the 3 AM–to–3 AM window starting that morning, consistent with everything else in §7.6.
 
 ### 7.9 CSV export formatting: `feedsToCsv(feeds, pet)`
-Pure function. `feeds` is the full array from `getAllFeedsForExport` (§6.F.2, newest first — re-sort to oldest-first here, since a backup log reads more naturally chronologically). `pet` is the `Pet` object feeds are being exported for.
+Pure function. `feeds` is the full array from `getAllFeedsForExport` (§6.F.2, newest first). **v1.3:** rows stay in that same newest-first order (Dathan's ask, so the most recent feed reads first when the file is opened) — through v1.2 this re-sorted oldest-first before writing rows. `pet` is the `Pet` object feeds are being exported for.
 - Header row: `date,pet,time,feeder`
 - One row per feed: `date` is `YYYY-MM-DD` for that feed's **feed day** (`feedDayKey`, §7.6 — not the calendar date, for the same reason day-grouping uses it), `pet` is `pet.name`, `time` is `formatTime(created_at)` (§7.4, device locale, e.g. `7:42 AM`), `feeder` is `logged_by` or `Someone`.
 - RFC 4180 quoting: wrap a field in `"…"` and double any internal `"` only if the field contains a comma, quote or newline. Names are free text (§7.7), so this matters — a feeder name saved as `Sam, sr.` must round-trip correctly.

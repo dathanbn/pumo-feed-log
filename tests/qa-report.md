@@ -1,5 +1,16 @@
 # Pumo Feed Log — QA report
 
+**Status: v1.3 verification pass (added below in §2b/§3's new F22 section/§8d) — a small polish
+patch (F22: CSV button icon-only + inline with the legend, newest-first CSV export, re-cropped
+Zuumi/Banh Mi photos, slightly larger picker avatars), built and verified by the PM directly
+rather than through a dispatched Frontend/QA agent pair (see tasks.md's v1.3 addendum for why).
+This is a delta round, not a full re-run like every pass below it: F22 touches only the heatmap
+card's header DOM/CSS, `feedsToCsv`'s row order, and the two photo assets/avatar CSS, so only
+those code paths and their existing test coverage were re-verified — the 97 pre-existing v1.2
+ACs were not individually re-run this round (nothing in F22 touches their code paths; §8d says
+exactly what was and wasn't re-checked). Everything below this point (§0 History through §9) is
+the unmodified v1.2 report, kept for history.**
+
 **Status: v1.2 verification pass, corrected round** — this pass covers the 3 v1.2 features on
 top of the shipped v1.1 build: **F19's AC-19.6** (Download CSV button moved into the heatmap
 card's header, restyled subtle), **F20** (real photos for Zuumi and Banh Mi — pure data
@@ -120,6 +131,19 @@ explicitly re-confirms its behavior is unchanged by the restyle/move) and AC-2.3
 | INCONCLUSIVE (environment) | 1 | AC-18.1 — carried forward from v1.1, unchanged. |
 | DATHAN (not QA's to run) | 3 | AC-1.1, AC-1.2, AC-17.8 — carried forward from v1.1. v1.2 adds none (F20/F21 are fully verifiable by QA — no real-phone-only step, per tasks.md). |
 | **Total** | **97** | 86 (v1.1) + 11 (v1.2). |
+
+## 2b. v1.3 delta (F22) — added this round, not part of the v1.2 pass above
+
+**F22 adds 4 new [QA] ACs** (AC-22.1 through AC-22.4, spec.md). All 4 PASS. New total: **101**
+(97 + 4); PASS: **71** (67 + 4); every other row in §2's table is unchanged (this round adds no
+new BLOCKED, FAIL, INCONCLUSIVE or DATHAN rows).
+
+| AC | Result | Evidence | Notes |
+|---|---|---|---|
+| AC-22.1 | PASS | `19-csv-export.spec.js` `AC-19.6a / AC-22.1` (mocked), `AC-19.6b/c/d` (mocked) | CSV button confirmed icon-only (`toHaveText('')`, aria-label carries the full name), a descendant of `.heatmap__header` alongside `#heatmap-legend` (legend `x` < button `x`, button flush to the header's right edge), styled `.btn--text.btn--icon-only`, 44×44 tap target preserved. Busy state (spinner icon swap, disabled) and hide/show-with-card behavior unchanged. |
+| AC-22.2 | PASS | `19-csv-export.spec.js` `AC-19.3c` (fixture) + ad hoc real-download check (not shipped, run once during this pass) | `feedsToCsvExpected`'s own reimplementation confirms newest-first row order against a 2-feed fixture; a one-off Playwright script clicking the real button and parsing the real downloaded file independently confirmed the same order end to end (`['Newer', 'Older']`). `tests/unit/logic.test.mjs`'s `feedsToCsv` suite also updated and passing (79/79 total). |
+| AC-22.3 | PASS | Visual review of `frontend/assets/zuumi.jpg`/`banh-mi.jpg` after re-crop; `20-pet-photos.spec.js` AC-20.1a/b/c/d re-run (mocked) | Both photos re-generated with the nose vertically centered (crop math documented in the re-crop script), ears visible at the top of frame — compared side by side against the pre-v1.3 crop and against `pumo.jpg`'s existing framing for consistency. No `photo_url` or filename change, so no code path beyond the asset bytes themselves was touched. |
+| AC-22.4 | PASS | `02-home-headline.spec.js` `AC-2.3a`/`AC-2.3b` re-run (mocked, local static server) | Avatar CSS bumped 28px→32px (unselected) / 32px→36px (selected). Re-ran the exact AC-2.3a/b fit assertions (every named element's bounding box within the 375×553 / 390×664 viewports, no scroll) against the new sizing — both still pass with no changes needed elsewhere in the layout. Tap target unchanged (was already 44×44). |
 
 ## 3. Results table
 
@@ -751,6 +775,40 @@ live-database cleanup is owed from this pass.**
 - **Live-database cleanup**: re-confirmed 0 live `QA-test` rows after this round's work (no new
   SQL writes were made this round — only re-reads).
 
+## 8d. Sanity checks performed this pass (v1.3, F22 — see §2b)
+
+- **Unit suite**: `tests/unit/logic.test.mjs` re-run in full (not just the touched
+  `feedsToCsv` suite) under both `TZ=America/Los_Angeles` and `TZ=UTC` — 79/79 pass both times.
+- **CSV icon-only + inline-with-legend**: `19-csv-export.spec.js`'s mocked tests re-run —
+  `AC-19.1b`, `AC-19.2b`, `AC-19.3c/d`, `AC-19.4b`, `AC-19.5`, `AC-19.6a` (rewritten for
+  AC-22.1) through `AC-19.6d` all pass. The real-network variants (`AC-19.1a`, `AC-19.2a`,
+  `AC-19.3a/b`, `AC-19.4a`) were not re-run — same pre-existing sandbox egress block as every
+  prior pass, and this round doesn't touch anything on the server side for them to catch.
+- **CSV newest-first order, end to end**: beyond the fixture check (`AC-19.3c`), a one-off
+  Playwright script (not committed — ad hoc verification only) clicked the real button against
+  a 2-feed mock and parsed the real downloaded file, confirming `['Newer', 'Older']` order.
+- **Avatar size bump vs. AC-2.3a's fit budget**: `02-home-headline.spec.js`'s `AC-2.3a`/`AC-2.3b`
+  re-run against the new 32px/36px sizing (local static server, since this needed to be
+  checked before, not after, deploying) — both still pass, no other layout changes needed.
+- **Legend visibility/position, heatmap axe scan**: `18-heatmap.spec.js`'s `AC-18.6` and
+  `AC-18.6b` (axe, no serious/critical violations) re-run — both pass; the icon-only CSV button
+  losing its visible text doesn't trip the scan since its aria-label is unchanged.
+- **Broader regression sweep**: `17-pets.spec.js`, `18-heatmap.spec.js`, `16-look-and-feel.spec.js`
+  run together against the local build (mobile-light) — 46 passed, 4 failed. 3 of the 4 are the
+  same pre-existing real-network BLOCKED pattern as every prior pass. The 4th
+  (`18-heatmap.spec.js`'s `AC-18.1`) is the same pre-existing, already-documented
+  test-infrastructure flake noted in §2's table above (INCONCLUSIVE, "carried forward from
+  v1.1, unchanged") — independently reproduced and re-confirmed this round: the page snapshot
+  captured at the moment of failure shows the heatmap, legend and CSV button all rendered
+  correctly (35 cells, correct legend content, button in the header), and a raw
+  `playwright-core` script against the identical mocked fixture takes the same screenshot
+  successfully in under a second — the hang is specific to `page.screenshot()` running inside
+  this sandbox's Playwright test-runner process, not a rendering defect.
+- **Pet photo re-crop**: no automated test can assert "the nose looks centered" — verified by
+  eye, comparing the new `zuumi.jpg`/`banh-mi.jpg` against the pre-v1.3 crop and against
+  `pumo.jpg`'s existing framing, plus the re-captured `20-home-pet-picker-*` screenshots below.
+- **Live-database**: no SQL writes this round (no schema/data change) — nothing to clean up.
+
 ## 9. Ambiguities — status
 
 Unchanged from fix round 1: all 5 original scaffolding-pass ambiguities remain resolved (see
@@ -760,6 +818,13 @@ new ambiguities were found in v1.1 or this v1.2 pass beyond D2 (§4, still open)
 this pass, low severity).
 
 ## Screenshot inventory (`tests/screenshots/`)
+
+**v1.3 note:** no new filenames this round — F22 changed pixel content only, re-captured under
+the same existing names: `19-history-csv-header-{resting,preparing}-{light,dark}.png` (icon-only
+button, inline with the legend), `20-home-pet-picker-real-photos-{light,dark}.png` and
+`20-home-pet-picker-{zuumi,banh-mi}-real-photo-selected-{light,dark}.png` (re-cropped photos,
+larger avatars), and `16-home-viewport-375x553-light.png` (AC-2.3a re-verification against the
+new avatar size). The counts and file list below are the unmodified v1.2 inventory.
 
 **73 files total.** This pass added 15 new v1.2 files (via `19-csv-export.spec.js`'s new
 AC-19.6 tests, `20-pet-photos.spec.js`, and `21-edit-time.spec.js`), on top of the v1.1 pass's

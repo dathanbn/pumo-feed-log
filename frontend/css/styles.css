@@ -184,7 +184,10 @@ time, .tabular {
 /* design.md §3.1's AC-2.3a fallback, step 2: the 375×553 budget needs the picker row shrunk
    below its default 40px/48px sizing. The tap target itself stays a fixed 44×44 (accessible
    minimum) via centering padding — only the *visual* avatar inside it (in .pet-avatar below)
-   gets smaller (28px / 32px selected), never the tap target. */
+   gets smaller. v1.3: bumped back up from 28px/32px to 32px/36px (Dathan's "a little bigger,
+   more accessible" ask, re-verified against AC-2.3a's 375×553 budget — see docs/design.md
+   §3.1). Still short of the original 40px/48px full-size intent, which the budget doesn't
+   allow at this viewport. */
 .pet-picker__item {
   display: flex;
   align-items: center;
@@ -208,16 +211,16 @@ time, .tabular {
 
 .pet-avatar {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   overflow: hidden;
   background: var(--accent);
 }
 
 .pet-picker__item--selected .pet-avatar {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: 2px solid var(--accent-strong);
 }
 
@@ -997,24 +1000,29 @@ time, .tabular {
 }
 
 /* v1.2: #csv-error (shares .older-error's base look) now sits inside the heatmap card, between
-   its header and the legend — .older-error's centered alignment reads oddly there and, with no
-   margin of its own, crammed straight up against the legend row right below it. Left-align it
-   (matching the left-aligned legend/grid below, instead of the centered "Show older feeds"
-   error's own layout) and give it room to breathe on both sides. */
+   its header (legend + CSV button, v1.3) and the calendar grid below — .older-error's centered
+   alignment reads oddly there and, with no margin of its own, crammed straight up against the
+   grid right below it. Left-align it (matching the left-aligned legend/grid, instead of the
+   centered "Show older feeds" error's own layout) and give it room to breathe on both sides. */
 #csv-error {
   justify-content: flex-start;
   margin-bottom: 12px;
 }
 
 /* ---- CSV button (design.md §4.2; v1.2: restyled to .btn--text and moved into the heatmap
-   card's own header, so it's no longer a standalone full-width element under <h1>) ------------ */
-
-#csv-button {
-  gap: 6px;
-}
+   card's own header; v1.3: icon-only, inline with the legend rather than right-aligned alone) - */
 
 #csv-button.is-checking {
   opacity: 0.85;
+}
+
+/* v1.3: a compact square variant of .btn--text for icon-only controls — .btn's 44px min-height
+   plus a matching fixed width gives a real 44×44 tap target around just the icon, no padding
+   wide enough to imply hidden text (design.md §4.2/§7's icon-only-control rule). */
+.btn--icon-only {
+  width: 44px;
+  padding: 0;
+  flex: none;
 }
 
 /* ---- Heatmap (design.md §4.1, v1.1; §4.1/§4.2 header, v1.2) ---------------------------------- */
@@ -1027,12 +1035,17 @@ time, .tabular {
   padding: 16px;
 }
 
-/* v1.2: a static header row, never touched by renderHeatmap()'s own clear/rebuild (it only
-   targets #heatmap-content) — holds just the restyled CSV button, right-aligned, above the
-   legend. (architecture.md §4's "Heatmap card DOM shape" note, design.md §4.1/§4.2) */
+/* v1.3: a static header row, never touched by renderHeatmap()'s own clear/rebuild (it only
+   targets #heatmap-content) — holds the legend on the left and the icon-only CSV button on the
+   right, in one inline row. (architecture.md §4's "Heatmap card DOM shape" note, design.md
+   §4.1/§4.2) The legend itself (#heatmap-legend) IS safe to rebuild — it's stateless and holds
+   no listeners, unlike #csv-button — renderHeatmapLegend() just isn't called on every data
+   refresh the way renderHeatmap() is, since the legend never depends on data. */
 .heatmap__header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
 }
 
@@ -1041,7 +1054,8 @@ time, .tabular {
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  margin-bottom: 14px;
+  flex: 1;
+  min-width: 0;
 }
 
 .heatmap__legend-item {

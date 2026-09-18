@@ -177,12 +177,12 @@ function csvField(value) {
 }
 
 /** contract.md §7.9 feedsToCsv(feeds, pet). `feeds` newest-first (as getAllFeedsForExport
- *  resolves), re-sorted oldest-first here exactly as the contract specifies. Returns the
- *  full CSV text with \r\n line endings, header included. */
+ *  resolves) and rows stay in that order (v1.3 — through v1.2 this re-sorted oldest-first).
+ *  Returns the full CSV text with \r\n line endings, header included. */
 function feedsToCsvExpected(feeds, pet) {
   const header = 'date,pet,time,feeder';
-  const oldestFirst = [...feeds].reverse();
-  const rows = oldestFirst.map((f) => {
+  // v1.3: newest-first, same order as the input (was oldest-first/reversed through v1.2).
+  const rows = feeds.map((f) => {
     const date = feedDayKeyExpected(new Date(f.created_at));
     const time = formatTimeExpected(new Date(f.created_at));
     const feeder = f.logged_by || 'Someone';
