@@ -139,7 +139,9 @@ time, .tabular {
   padding-top: calc(24px + env(safe-area-inset-top));
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  /* design.md §3.1's AC-2.3a fallback, step 1: v1.1's pet-picker row (§3.0) eats into the
+     375×553 budget, so the section gap is tightened from its original 16px. */
+  gap: 8px;
 }
 
 #data-block {
@@ -170,29 +172,101 @@ time, .tabular {
   flex-shrink: 0;
 }
 
+/* ---- Pet picker (design.md §3.0, v1.1) --------------------------------------------------- */
+
+.pet-picker {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+}
+
+/* design.md §3.1's AC-2.3a fallback, step 2: the 375×553 budget needs the picker row shrunk
+   below its default 40px/48px sizing. The tap target itself stays a fixed 44×44 (accessible
+   minimum) via centering padding — only the *visual* avatar inside it (in .pet-avatar below)
+   gets smaller (28px / 32px selected), never the tap target. */
+.pet-picker__item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 120ms ease;
+}
+
+.pet-picker__item:hover,
+.pet-picker__item:focus-visible {
+  opacity: 1;
+}
+
+.pet-picker__item--selected {
+  opacity: 1;
+}
+
+.pet-avatar {
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--accent);
+}
+
+.pet-picker__item--selected .pet-avatar {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--accent-strong);
+}
+
+.pet-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.pet-avatar--placeholder.pet-avatar--dog {
+  background: var(--surface-200);
+}
+
+.pet-avatar__ear {
+  fill: var(--accent-strong);
+}
+
+.pet-avatar--cat .pet-avatar__fill {
+  fill: var(--accent-strong);
+}
+
+.pet-avatar--cat .pet-avatar__initial {
+  fill: var(--on-accent-strong);
+}
+
+/* A fixed (non-theme-flipping) dark neutral, same family as --border-strong, chosen so its
+   white initial clears 4.5:1 in both light and dark mode (validated: 8.01:1) — same pattern as
+   --pumo, the avatar-ring token, which is also one constant hex across both modes. */
+.pet-avatar--dog .pet-avatar__fill {
+  fill: #5D4E3C;
+}
+
+.pet-avatar--dog .pet-avatar__initial {
+  fill: #FFFFFF;
+}
+
+.pet-avatar__initial {
+  font-family: var(--font-family);
+  font-weight: 700;
+  font-size: 17px;
+}
+
 /* ---- Header ------------------------------------------------------------------------------ */
 
 .header {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.avatar {
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  border: 2px solid var(--accent-strong);
-  overflow: hidden;
-  background: var(--accent);
-}
-
-.avatar__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .header__text h1 {
@@ -306,12 +380,17 @@ time, .tabular {
 }
 
 .row {
-  min-height: 44px;
+  /* design.md §3.1: rows may shrink as far as this 56px floor (never below it) when the
+     375x553 budget (AC-2.3a) needs the room; the round-2 QA fix drops vertical padding
+     from 12px to 6px so height = the 44px delete button + 6+6px padding = 56px exactly.
+     .row__delete keeps its own fixed 44x44 sizing below, independent of this height, so
+     the tap target is unaffected by the row shrinking. */
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--surface-200);
 }
 
@@ -342,8 +421,8 @@ time, .tabular {
 }
 
 .row__delete {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -862,6 +941,180 @@ time, .tabular {
   gap: 12px;
   color: var(--danger);
   font-size: 0.9375rem;
+}
+
+/* ---- CSV button (design.md §4.2, v1.1) ------------------------------------------------------ */
+
+#csv-button {
+  margin-top: 4px;
+  gap: 8px;
+}
+
+#csv-button.is-checking {
+  opacity: 0.85;
+}
+
+/* ---- Heatmap (design.md §4.1, v1.1) ---------------------------------------------------------- */
+
+.heatmap {
+  margin-top: 20px;
+  background: var(--surface-000);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+  padding: 16px;
+}
+
+.heatmap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.heatmap__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+}
+
+.heatmap__legend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.heatmap__legend-sep {
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  margin: 0 -6px;
+}
+
+.heatmap__weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.heatmap__weekdays span {
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.heatmap__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.heat-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 4px;
+  text-align: left;
+}
+
+.heat-cell__num {
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.heat-cell--tier-0 {
+  background: var(--surface-200);
+}
+.heat-cell--tier-0 .heat-cell__num {
+  color: var(--ink-soft);
+}
+
+/* Sequential ramp, one hue (the app's teal accent), light→dark in light mode and dark→light in
+   dark mode — chosen with the dataviz skill's ordinal-ramp validator (monotone OKLCH L, >=0.06
+   adjacent step, light/dark-end contrast vs surface, single hue) and with each tier's own
+   on-fill text color checked for >=4.5:1 (see build notes for the exact validator output). */
+.heat-cell--tier-1 { background: #82B6CE; }
+.heat-cell--tier-2 { background: #409EC9; }
+.heat-cell--tier-3 { background: #20759D; }
+.heat-cell--tier-4 { background: #155775; }
+.heat-cell--tier-1 .heat-cell__num,
+.heat-cell--tier-2 .heat-cell__num {
+  color: var(--ink);
+}
+.heat-cell--tier-3 .heat-cell__num,
+.heat-cell--tier-4 .heat-cell__num {
+  color: #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+  .heat-cell--tier-1 { background: #2E586B; }
+  .heat-cell--tier-2 { background: #326B85; }
+  .heat-cell--tier-3 { background: #3D98C2; }
+  .heat-cell--tier-4 { background: #5CAFD6; }
+  .heat-cell--tier-1 .heat-cell__num,
+  .heat-cell--tier-2 .heat-cell__num {
+    color: var(--ink);
+  }
+  .heat-cell--tier-3 .heat-cell__num,
+  .heat-cell--tier-4 .heat-cell__num {
+    color: #16222A;
+  }
+}
+
+.heat-cell--out {
+  opacity: 0.4;
+}
+
+.heat-cell--today {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+}
+
+.heat-cell--expanded {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+}
+
+.heatmap__panel {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--surface-200);
+}
+
+.heatmap__panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.heatmap__panel-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.heatmap__panel-close {
+  min-height: 44px;
+  min-width: 44px;
+  color: var(--ink-soft);
+}
+
+.heatmap__panel-empty {
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+  padding: 4px 0;
+}
+
+.row--static {
+  cursor: default;
 }
 
 /* ---- Reduced motion (design.md §2, motion) ----------------------------------------------------------- */

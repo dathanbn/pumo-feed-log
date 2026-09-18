@@ -3,7 +3,7 @@
 // Never assigns feed or name data through innerHTML — always textContent. (architecture.md §4)
 
 import { FOCUS_REFRESH_DEBOUNCE_MS } from './constants.js';
-import { formatTime, formatFeedLabel, deleteAriaLabel } from './logic.js';
+import { formatTime, formatFeedLabel, deleteAriaLabel, pathForPet } from './logic.js';
 
 // ---- Icons -----------------------------------------------------------------
 // Static, trusted, hand-written SVG markup only. Never combined with feed or user data.
@@ -49,8 +49,11 @@ export const COPY = {
   historyLoadErrorTitle: "Can't load history.",
   historyEmpty: 'No feeds logged yet.',
   olderPageError: "Couldn't load older feeds.",
-  recentEmpty: 'When Pumo gets fed, tap the button below.',
   refreshBannerPrefix: "Couldn't refresh. Showing feeds as of ",
+  csvButtonLabel: 'Download CSV',
+  csvPreparing: 'Preparing…',
+  csvFailed: "Couldn't prepare the download.",
+  heatmapLegend: ['0', '1', '2', '3', '4+'],
 };
 
 /**
@@ -356,4 +359,257 @@ export function showBanner(el, message, onRetry) {
 export function hideBanner(el) {
   el.hidden = true;
   el.textContent = '';
+}
+
+// ---- Pet avatar (photo or placeholder), shared by the picker (design.md §3.0) ---------------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * A pet's avatar: its photo when `pets.photo_url` is set, otherwise a placeholder — a filled
+ * circle in a per-species tint with the pet's first initial, cats getting a pair of small ear
+ * shapes so cats and dogs are distinguishable by shape, not color alone (design.md §3.0/§8).
+ * The avatar is clipped to a circle exactly inscribed in its own box (`.pet-avatar`'s
+ * `overflow:hidden; border-radius:999px`) — radius 20 about (20,20) in this viewBox, with no
+ * slack near the corners the way a square icon (frontend/assets/icon.svg) has. A cat's head
+ * circle is therefore drawn smaller (r=15) than a dog's (r=20, filling the clip edge to edge)
+ * specifically so the ear tips — positioned to stay just inside the r=20 clip, but outside the
+ * r=15 head — have room to actually render instead of being clipped away or painted over.
+ * Always decorative (aria-hidden): the caller supplies the accessible name (the picker's link
+ * already carries `aria-label="{pet name}"`, so this never duplicates it via `alt`/label text).
+ * @param {{name: string, species: 'cat'|'dog', photo_url: string|null}} pet
+ * @returns {HTMLElement}
+ */
+export function buildPetAvatar(pet) {
+  const wrap = document.createElement('span');
+  wrap.className = 'pet-avatar';
+  wrap.setAttribute('aria-hidden', 'true');
+
+  if (pet.photo_url) {
+    const img = document.createElement('img');
+    img.className = 'pet-avatar__img';
+    img.src = pet.photo_url;
+    img.alt = '';
+    wrap.appendChild(img);
+    return wrap;
+  }
+
+  const isCat = pet.species !== 'dog';
+  wrap.classList.add('pet-avatar--placeholder', `pet-avatar--${isCat ? 'cat' : 'dog'}`);
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 40 40');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+
+  if (isCat) {
+    // A pair of small ear triangles, drawn *behind* the fill circle (added first) so only their
+    // pointed tips show above it — the species-shape cue design.md §3.0/§8 asks for. Each base
+    // point sits inside the r=15 head circle (so the head covers/hides it); each tip sits
+    // outside the head but inside the r=20 avatar clip (so it's the only part that shows).
+    for (const [baseL, tip, baseR] of [
+      [[9, 13], [13, 4], [17, 13]],
+      [[23, 13], [27, 4], [31, 13]],
+    ]) {
+      const ear = document.createElementNS(SVG_NS, 'polygon');
+      ear.setAttribute('points', `${baseL.join(',')} ${tip.join(',')} ${baseR.join(',')}`);
+      ear.setAttribute('class', 'pet-avatar__ear');
+      svg.appendChild(ear);
+    }
+  }
+
+  const circle = document.createElementNS(SVG_NS, 'circle');
+  circle.setAttribute('cx', '20');
+  circle.setAttribute('cy', '20');
+  circle.setAttribute('r', isCat ? '15' : '20');
+  circle.setAttribute('class', 'pet-avatar__fill');
+  svg.appendChild(circle);
+
+  const text = document.createElementNS(SVG_NS, 'text');
+  text.setAttribute('x', '20');
+  text.setAttribute('y', '21');
+  text.setAttribute('text-anchor', 'middle');
+  text.setAttribute('dominant-baseline', 'middle');
+  text.setAttribute('class', 'pet-avatar__initial');
+  text.textContent = (pet.name || '?').trim().charAt(0).toUpperCase();
+  svg.appendChild(text);
+
+  wrap.appendChild(svg);
+  return wrap;
+}
+
+// ---- Pet picker (design.md §3.0) -------------------------------------------------------------
+
+/**
+ * Renders the row of pet-picker avatars into `container`, replacing its contents. The selected
+ * pet's avatar is visually larger and ringed (`.pet-picker__item--selected`); every avatar is a
+ * real `<a href="{pathForPet(slug)}">` with `aria-label="{pet name}"`, and the selected one also
+ * gets `aria-current="true"`. Navigation is a normal link (not a client-side swap), so the URL
+ * bar always reflects the pet on screen. (design.md §3.0, contract.md §7.10)
+ * @param {HTMLElement} container
+ * @param {{pets: Array, selectedSlug: string}} opts
+ */
+export function renderPetPicker(container, { pets, selectedSlug }) {
+  container.textContent = '';
+  for (const pet of pets) {
+    const selected = pet.slug === selectedSlug;
+    const a = document.createElement('a');
+    a.className = 'pet-picker__item' + (selected ? ' pet-picker__item--selected' : '');
+    a.href = pathForPet(pet.slug);
+    a.setAttribute('aria-label', pet.name);
+    if (selected) a.setAttribute('aria-current', 'true');
+    a.appendChild(buildPetAvatar(pet));
+    container.appendChild(a);
+  }
+}
+
+// ---- Heatmap (design.md §4.1, contract.md §7.8) -----------------------------------------------
+
+const HEATMAP_WEEKDAY_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+function feedCountWords(n) {
+  if (n === 0) return 'no feeds';
+  return `${n} feed${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * The accessible name for one heatmap cell, e.g. "Tuesday, September 15: 3 feeds" or
+ * "Tuesday, September 15: no feeds" — color is never the only signal (AC-18.6).
+ * @param {{date: Date, count: number}} cell
+ * @returns {string}
+ */
+function heatmapCellLabel(cell) {
+  return `${HEATMAP_WEEKDAY_FORMAT.format(cell.date)}: ${feedCountWords(cell.count)}`;
+}
+
+/**
+ * Renders the heatmap card (legend, Sun–Sat header, weeks grid, and the expanded-day panel when
+ * one is open) into `container`, replacing its contents. Stateless/presentational — the caller
+ * owns which cell (if any) is expanded and supplies that day's feeds to show. (design.md §4.1)
+ * @param {HTMLElement} container
+ * @param {object} opts
+ * @param {{weeks: Array<Array<object>>}} opts.heatmap - buildHeatmap() result
+ * @param {string|null} opts.expandedKey - feedDayKey of the expanded cell, or null
+ * @param {Array|null} opts.expandedFeeds - that day's live feeds (time + name rows), or null
+ * @param {(cell: object) => void} opts.onCellClick
+ * @param {() => void} opts.onCollapse
+ */
+export function renderHeatmap(container, { heatmap, expandedKey, expandedFeeds, onCellClick, onCollapse }) {
+  container.textContent = '';
+  container.setAttribute('role', 'group');
+  container.setAttribute('aria-label', 'Feeding heatmap, last five weeks');
+
+  // design.md's copy table (§5) gives the legend's text as the single literal string
+  // "0 · 1 · 2 · 3 · 4+"; its §4.1 prose separately describes per-tier color swatches paired
+  // with their number. Both are honored here: each tier still gets its own colored swatch
+  // (aria-hidden, decorative) immediately next to its number, and a " · " separator between
+  // tiers means the legend's overall text content reads exactly the copy table's string.
+  const legend = document.createElement('div');
+  legend.className = 'heatmap__legend';
+  COPY.heatmapLegend.forEach((label, tier) => {
+    if (tier > 0) {
+      const sep = document.createElement('span');
+      sep.className = 'heatmap__legend-sep';
+      sep.textContent = ' · ';
+      legend.appendChild(sep);
+    }
+    const item = document.createElement('span');
+    item.className = 'heatmap__legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = `heatmap__legend-swatch heat-cell--tier-${tier}`;
+    swatch.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.textContent = label;
+    item.append(swatch, text);
+    legend.appendChild(item);
+  });
+  container.appendChild(legend);
+
+  const weekdayHeader = document.createElement('div');
+  weekdayHeader.className = 'heatmap__weekdays';
+  weekdayHeader.setAttribute('aria-hidden', 'true');
+  for (const label of ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']) {
+    const cell = document.createElement('span');
+    cell.textContent = label;
+    weekdayHeader.appendChild(cell);
+  }
+  container.appendChild(weekdayHeader);
+
+  const grid = document.createElement('div');
+  grid.className = 'heatmap__grid';
+  for (const week of heatmap.weeks) {
+    for (const cell of week) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `heat-cell heat-cell--tier-${cell.intensity}`;
+      if (!cell.inRange) btn.classList.add('heat-cell--out');
+      if (cell.isToday) {
+        btn.classList.add('heat-cell--today');
+        btn.setAttribute('data-today', 'true');
+      }
+      if (cell.inRange && cell.feedDayKey === expandedKey) btn.classList.add('heat-cell--expanded');
+      btn.disabled = !cell.inRange;
+      btn.setAttribute('aria-label', heatmapCellLabel(cell));
+      const num = document.createElement('span');
+      num.className = 'heat-cell__num';
+      num.textContent = String(cell.date.getDate());
+      num.setAttribute('aria-hidden', 'true');
+      btn.appendChild(num);
+      if (cell.inRange) {
+        btn.addEventListener('click', () => onCellClick(cell));
+      }
+      grid.appendChild(btn);
+    }
+  }
+  container.appendChild(grid);
+
+  if (expandedKey && expandedFeeds) {
+    const panel = document.createElement('div');
+    panel.className = 'heatmap__panel';
+    panel.setAttribute('data-heatmap-expanded', 'true');
+
+    const panelHeader = document.createElement('div');
+    panelHeader.className = 'heatmap__panel-header';
+    const title = document.createElement('span');
+    title.className = 'heatmap__panel-title';
+    title.textContent = `${expandedFeeds.length} feed${expandedFeeds.length === 1 ? '' : 's'}`;
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'heatmap__panel-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', onCollapse);
+    panelHeader.append(title, closeBtn);
+    panel.appendChild(panelHeader);
+
+    if (expandedFeeds.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'heatmap__panel-empty';
+      empty.textContent = 'No feeds that day.';
+      panel.appendChild(empty);
+    } else {
+      const ul = document.createElement('ul');
+      ul.className = 'row-list';
+      for (const feed of expandedFeeds) {
+        const li = document.createElement('li');
+        li.className = 'row row--static';
+        const info = document.createElement('div');
+        info.className = 'row__info';
+        const line1 = document.createElement('p');
+        line1.className = 'row__line1';
+        const timeEl = document.createElement('time');
+        timeEl.dateTime = feed.created_at;
+        timeEl.textContent = formatTime(new Date(feed.created_at));
+        line1.appendChild(timeEl);
+        const line2 = document.createElement('p');
+        line2.className = 'row__line2';
+        line2.textContent = `by ${feed.logged_by || 'Someone'}`;
+        info.append(line1, line2);
+        li.appendChild(info);
+        ul.appendChild(li);
+      }
+      panel.appendChild(ul);
+    }
+
+    container.appendChild(panel);
+  }
 }

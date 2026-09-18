@@ -1,7 +1,8 @@
 // Pumo Feed Log: home screen controller. Owns the button state machine, the 30 s tick, the
 // undo notice, and the name card/footer. (architecture.md §4, design.md §3, spec.md F2-F11,14)
+// v1.1: resolves the pet from the URL before the first render, renders the pet picker, and
+// scopes every api.js call to that pet's id (spec.md F17).
 
-import { PUMO_PHOTO_URL } from './config.js';
 import {
   TICK_MS,
   ARM_TIMEOUT_MS,
@@ -12,14 +13,38 @@ import {
   DAILY_FEED_TARGET,
   RECENT_LIST_SIZE,
   PAUSED_HINT_AFTER_FAILURES,
+  DEFAULT_PET_SLUG,
 } from './constants.js';
-import { guardState, armedLabel, armedAnnouncement, formatRelative, formatTime, dayKey, deleteConsequence, newFeedId } from './logic.js';
+import {
+  guardState,
+  armedLabel,
+  armedAnnouncement,
+  formatRelative,
+  formatTime,
+  feedDayKey,
+  deleteConsequence,
+  newFeedId,
+  petSlugFromLocation,
+} from './logic.js';
 import * as api from './api.js';
 import * as storage from './storage.js';
-import { announce, onFocusRefresh, createFeedRow, renderErrorPanel, showBanner, hideBanner, errorBodyLines, icon, COPY } from './ui.js';
+import {
+  announce,
+  onFocusRefresh,
+  createFeedRow,
+  renderErrorPanel,
+  showBanner,
+  hideBanner,
+  errorBodyLines,
+  icon,
+  COPY,
+  renderPetPicker,
+} from './ui.js';
 
 // ---- DOM references -------------------------------------------------------------------------
-const avatarEl = document.getElementById('avatar');
+const petPickerEl = document.getElementById('pet-picker');
+const petNameEl = document.getElementById('pet-name');
+const taglineEl = document.getElementById('tagline');
 const dataBlockEl = document.getElementById('data-block');
 const errorBlockEl = document.getElementById('error-block');
 const headlineLabelEl = document.getElementById('headline-label');
@@ -32,6 +57,7 @@ const logButtonEl = document.getElementById('log-button');
 const undoNoticeEl = document.getElementById('undo-notice');
 const refreshBannerEl = document.getElementById('refresh-banner');
 const nameCardEl = document.getElementById('name-card');
+const nameCardTitleEl = document.getElementById('name-card-title-text');
 const nameInputEl = document.getElementById('name-input');
 const nameSaveEl = document.getElementById('name-save');
 const nameSkipEl = document.getElementById('name-skip');
@@ -39,10 +65,12 @@ const footerEl = document.getElementById('footer');
 
 // ---- In-memory state (architecture.md §4) ----------------------------------------------------
 const state = {
+  pet: null, // resolved once per page load from the URL + getPets()
+  pets: [],
   recent: [],
   todayCount: 0,
   loadedAt: 0,
-  loadedDayKey: '',
+  loadedDayKey: '', // a *feed-day* key (v1.1, contract.md §7.6)
   loadStatus: 'loading', // 'loading' | 'ready' | 'error'
   hasLoadedOnce: false,
   lastError: null,
@@ -67,23 +95,7 @@ function textNode(t) {
 }
 
 function isFeedToday(feed, now) {
-  return dayKey(new Date(feed.created_at)) === dayKey(now);
-}
-
-// ---- Avatar -----------------------------------------------------------------------------------
-function setAvatar() {
-  avatarEl.textContent = '';
-  const img = document.createElement('img');
-  img.className = 'avatar__img';
-  if (PUMO_PHOTO_URL) {
-    img.src = PUMO_PHOTO_URL;
-    img.alt = 'Pumo';
-  } else {
-    img.src = 'assets/icon.svg';
-    img.alt = '';
-    img.setAttribute('aria-hidden', 'true');
-  }
-  avatarEl.appendChild(img);
+  return feedDayKey(new Date(feed.created_at)) === feedDayKey(now);
 }
 
 // ---- Headline / counter / recent list ---------------------------------------------------------
@@ -185,7 +197,7 @@ function renderRecentList(now) {
   recentListEl.textContent = '';
   if (state.recent.length === 0) {
     recentEmptyEl.hidden = false;
-    recentEmptyEl.textContent = COPY.recentEmpty;
+    recentEmptyEl.textContent = `When ${state.pet.name} gets fed, tap the button below.`;
     return;
   }
   recentEmptyEl.hidden = true;
@@ -299,7 +311,7 @@ function startArmTimer() {
 }
 
 function newAttempt() {
-  return { id: newFeedId(), logged_by: storage.getName() };
+  return { id: newFeedId(), petId: state.pet.id, logged_by: storage.getName() };
 }
 
 async function save(attempt) {
@@ -376,7 +388,7 @@ async function onLogTap() {
     state.currentGuard = g;
     startArmTimer();
     renderButtonLabel(now);
-    announce(armedAnnouncement(g, state.todayCount));
+    announce(armedAnnouncement(g, state.todayCount, state.pet.name));
     return;
   }
   await save(newAttempt());
@@ -520,6 +532,7 @@ function renderFooter() {
 }
 
 function initNameCard() {
+  if (nameCardTitleEl) nameCardTitleEl.textContent = `Who's feeding ${state.pet.name}?`;
   nameInputEl.value = storage.getName() || '';
   updateSaveDisabled();
   nameCardEl.hidden = storage.isNamePromptDone();
@@ -564,19 +577,19 @@ async function refresh({ background }) {
     renderAll(new Date());
   }
   try {
-    const data = await api.getHomeData(new Date());
+    const data = await api.getHomeData(new Date(), state.pet.id);
     resetFailure();
     state.recent = data.recent;
     state.todayCount = data.todayCount;
     state.loadedAt = data.loadedAt;
-    state.loadedDayKey = dayKey(new Date());
+    state.loadedDayKey = feedDayKey(new Date());
     state.loadStatus = 'ready';
     state.hasLoadedOnce = true;
     state.lastError = null;
     hideBanner(refreshBannerEl);
     const now = new Date();
     // Only recompute the button from a truly idle state. A background refresh (from focus,
-    // the midnight tick, or an unrelated undo/delete) must never clobber 'armed' (an open
+    // the 3 AM tick, or an unrelated undo/delete) must never clobber 'armed' (an open
     // confirmation), 'not-saved' (a pending retry that still owns an id — losing this would
     // risk a duplicate feed if the retry then used a fresh id), 'saving', 'checking' or 'logged'.
     if (['loading', 'ready', 'guarded', 'load-failed'].includes(state.button)) {
@@ -611,20 +624,56 @@ function tick() {
   }
   if (state.hasLoadedOnce) renderHeadline(now);
   renderButtonLabel(now);
-  if (state.hasLoadedOnce && dayKey(now) !== state.loadedDayKey) {
+  if (state.hasLoadedOnce && feedDayKey(now) !== state.loadedDayKey) {
     refresh({ background: false });
   }
 }
 
-// ---- Init -----------------------------------------------------------------------------------
-function init() {
-  setAvatar();
-  initNameCard();
-  logButtonEl.addEventListener('click', onLogTap);
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  onFocusRefresh(() => refresh({ background: true }));
-  refresh({ background: false });
-  setInterval(tick, TICK_MS);
+// ---- Pet resolution (v1.1, contract.md §7.10) --------------------------------------------------
+function renderPetLoadError(err) {
+  dataBlockEl.hidden = true;
+  errorBlockEl.hidden = false;
+  // No buttonText/onButtonClick here — the Log button (below) is the only retry control, same
+  // as renderErrorBlock()'s pre-v1.1 pattern. Passing a panel button too would show two live
+  // "Try again" buttons at once.
+  renderErrorPanel(errorBlockEl, {
+    title: COPY.loadErrorTitle,
+    bodyLines: errorBodyLines(err, false),
+  });
+  logButtonEl.textContent = 'Try again';
+  logButtonEl.className = 'log-button log-button--load-failed';
+  logButtonEl.disabled = false;
+  logButtonEl.onclick = () => initPet();
 }
 
-init();
+async function initPet() {
+  try {
+    const pets = await api.getPets();
+    state.pets = pets;
+    const slug = petSlugFromLocation(location.search, pets);
+    state.pet =
+      pets.find((p) => p.slug === slug) || pets.find((p) => p.slug === DEFAULT_PET_SLUG) || pets[0];
+
+    renderPetPicker(petPickerEl, { pets, selectedSlug: state.pet.slug });
+    petNameEl.textContent = state.pet.name;
+    // design.md §1's "Don't trust the meows." is cat-specific copy — a dog (e.g. Banh Mi)
+    // gets a species-appropriate variant of the same joke instead of the literal cat line.
+    if (taglineEl) {
+      taglineEl.textContent =
+        state.pet.species === 'dog' ? "Don't trust the puppy-dog eyes." : "Don't trust the meows.";
+    }
+    logButtonEl.onclick = null;
+
+    initNameCard();
+    logButtonEl.addEventListener('click', onLogTap);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    onFocusRefresh(() => refresh({ background: true }));
+    refresh({ background: false });
+    setInterval(tick, TICK_MS);
+  } catch (err) {
+    renderPetLoadError(err);
+  }
+}
+
+// ---- Init -----------------------------------------------------------------------------------
+initPet();

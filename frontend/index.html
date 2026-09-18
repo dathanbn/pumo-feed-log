@@ -23,11 +23,12 @@
 
   <div id="refresh-banner" class="banner" hidden></div>
 
+  <nav id="pet-picker" class="pet-picker" aria-label="Choose a pet"></nav>
+
   <header class="header">
-    <div id="avatar" class="avatar"></div>
     <div class="header__text">
-      <h1>Pumo</h1>
-      <p class="tagline">Don't trust the meows.</p>
+      <h1 id="pet-name">Pumo</h1>
+      <p id="tagline" class="tagline">Don't trust the meows.</p>
     </div>
   </header>
 
@@ -57,7 +58,7 @@
   <a class="history-link" href="history.html">Full history <svg class="chevron" viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4l6 6-6 6"/></svg></a>
 
   <section id="name-card" class="name-card" hidden>
-    <h2 class="name-card__title"><svg class="icon" width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="4.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(-16 4.2 7.8)"/><ellipse cx="8.1" cy="4.4" rx="2.6" ry="3.6" transform="rotate(-8 8.1 4.4)"/><ellipse cx="12.3" cy="4.4" rx="2.6" ry="3.6" transform="rotate(8 12.3 4.4)"/><ellipse cx="16.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(16 16.2 7.8)"/><path d="M10.2 9.4 C13.6 9.4 16.8 11.6 17 14.4 C17.2 16.6 15.8 18.2 13.6 18.6 C12.8 18.8 12 18.4 11.6 17.7 C11.4 18.4 11 18.8 10.2 18.8 C9.4 18.8 9 18.4 8.8 17.7 C8.4 18.4 7.6 18.8 6.8 18.6 C4.6 18.2 3.2 16.6 3.4 14.4 C3.6 11.6 6.8 9.4 10.2 9.4 Z"/></svg>Who's feeding Pumo?</h2>
+    <h2 class="name-card__title"><svg class="icon" width="18" height="18" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><ellipse cx="4.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(-16 4.2 7.8)"/><ellipse cx="8.1" cy="4.4" rx="2.6" ry="3.6" transform="rotate(-8 8.1 4.4)"/><ellipse cx="12.3" cy="4.4" rx="2.6" ry="3.6" transform="rotate(8 12.3 4.4)"/><ellipse cx="16.2" cy="7.8" rx="2.4" ry="3.1" transform="rotate(16 16.2 7.8)"/><path d="M10.2 9.4 C13.6 9.4 16.8 11.6 17 14.4 C17.2 16.6 15.8 18.2 13.6 18.6 C12.8 18.8 12 18.4 11.6 17.7 C11.4 18.4 11 18.8 10.2 18.8 C9.4 18.8 9 18.4 8.8 17.7 C8.4 18.4 7.6 18.8 6.8 18.6 C4.6 18.2 3.2 16.6 3.4 14.4 C3.6 11.6 6.8 9.4 10.2 9.4 Z"/></svg><span id="name-card-title-text">Who's feeding Pumo?</span></h2>
     <p class="name-card__body">Pick a name for this phone so everyone sees who logged each feed. No account needed.</p>
     <label class="name-card__label" for="name-input">Your name</label>
     <input id="name-input" class="name-card__input" type="text" placeholder="e.g. Sam" maxlength="20" autocomplete="given-name" enterkeyhint="done">
