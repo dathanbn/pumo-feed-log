@@ -25,7 +25,7 @@ const {
   selectedPetAvatarLink,
   logButton,
 } = require('../helpers/selectors');
-const { mockHomeData, mockHistoryFirstPage, mockHomeDataPerPetAndWrites, fakeFeed, MOCK_PET_IDS } = require('../helpers/mock');
+const { mockHomeData, mockHistoryFirstPage, mockHomeDataPerPetAndWrites, mockPetRows, fakeFeed, MOCK_PET_IDS } = require('../helpers/mock');
 const { shot } = require('../helpers/screenshot');
 const { MS } = require('../helpers/time');
 const { QA_LOGGED_BY, PETS, PET_SLUGS, NON_DEFAULT_PET_SLUGS, LIVE_URL } = require('../config');
@@ -203,6 +203,16 @@ test.describe('F17 — Multiple pets', () => {
   test('AC-17.6 — Zuumi (cat, no photo) and Banh Mi (dog, no photo) placeholder avatars are visually distinguishable from each other', async ({
     page,
   }) => {
+    // v1.2 (AC-20.1's own note): on the REAL live database, all 3 pets now have real photos —
+    // this placeholder code path is exercised only by a hypothetical 4th pet, never by any of
+    // today's three. mockPetRows' `overrides` param forces photo_url: null for Zuumi/Banh Mi
+    // here specifically, so this test keeps proving the placeholder-fallback logic itself still
+    // works (still real, still-shipped code, still worth a regression test) — it does NOT mean
+    // Zuumi/Banh Mi actually render placeholders in production any more; AC-20.1 (specs/
+    // 20-pet-photos.spec.js) is what proves the real-photo case, using the default (unmodified)
+    // mockPetRows() fixture, which now matches production.
+    const placeholderPets = mockPetRows([{}, { photo_url: null }, { photo_url: null }]);
+
     // Scoped to the SELECTED pet's own avatar (selectedPetAvatarLink, a[aria-current="true"]),
     // not just "the first avatar-ish element on the page" — the picker always renders all 3
     // pets in sort_order regardless of which is selected, so Pumo's own (photo) avatar is
@@ -211,16 +221,18 @@ test.describe('F17 — Multiple pets', () => {
     // repro: the untargeted `.avatar, [class*="avatar"]` locator matched
     // `<span class="pet-avatar"><img src="assets/pumo.jpg">` on both the Zuumi and Banh Mi
     // pages — a QA test-locator bug, not a frontend defect.
-    await mockHomeData(page, { recent: [], todayCount: 0 });
+    await mockHomeData(page, { recent: [], todayCount: 0, pets: placeholderPets });
     await gotoHome(page, 'zuumi');
     const zuumiAvatar = selectedPetAvatarLink(page).locator('.pet-avatar');
     await expect(zuumiAvatar).toBeVisible();
+    await expect(zuumiAvatar.locator('img')).toHaveCount(0); // confirms the placeholder path, not a real photo
     const zuumiShot = await zuumiAvatar.screenshot().catch(() => null);
 
-    await mockHomeData(page, { recent: [], todayCount: 0 });
+    await mockHomeData(page, { recent: [], todayCount: 0, pets: placeholderPets });
     await gotoHome(page, 'banh-mi');
     const banhMiAvatar = selectedPetAvatarLink(page).locator('.pet-avatar');
     await expect(banhMiAvatar).toBeVisible();
+    await expect(banhMiAvatar.locator('img')).toHaveCount(0);
     const banhMiShot = await banhMiAvatar.screenshot().catch(() => null);
 
     // Pixel-identical placeholders (same shape/color for a cat and a dog) would be a defect

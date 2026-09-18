@@ -74,16 +74,74 @@ test.describe('Direct REST checks (contract.md §6.F)', () => {
     expect(leaked.length).toBe(0);
   });
 
-  test('AC-5.2b — PATCH trying to set created_at is rejected (401/403, 42501)', async () => {
+  // v1.2 (contract.md §1/§3/§6.H): the update grant on created_at was widened so a feed's
+  // logged time can be corrected (F21). AC-5.2's ORIGINAL wording ("PATCH that tries to set
+  // created_at is rejected, 42501") is now stale for a PAST value — this is an intentional
+  // contract change, not a regression; see docs-drift note in tests/qa-report.md §4. A future
+  // value is still rejected, just by a different mechanism (23514, the CHECK constraint, not
+  // 42501, a missing grant) — that case is AC-5.2c below, plus AC-21.4/21.8's own coverage in
+  // specs/21-edit-time.spec.js.
+  test('AC-5.2b (v1.2 update) — PATCH setting created_at to a PAST value now SUCCEEDS (contract.md §6.H); pet_id/logged_by remain untouched', async () => {
     const row = await rest.insertFeed({ logged_by: QA_LOGGED_BY });
     try {
-      const r = await rest.attemptPatchCreatedAt(row.id);
+      const r = await rest.attemptPatchCreatedAt(row.id); // 2020-01-01, a past value
+      expect(r.status).toBe(200);
+      expect(r.body[0].created_at).toBe('2020-01-01T00:00:00+00:00');
+
+      const after = await rest.getById(row.id);
+      expect(after).not.toBeNull();
+      expect(after.created_at).toBe('2020-01-01T00:00:00+00:00');
+      expect(after.pet_id).toBe(row.pet_id); // untouched
+      expect(after.logged_by).toBe(row.logged_by); // untouched
+    } finally {
+      await rest.softDeleteById(row.id);
+    }
+  });
+
+  // v1.2, contract.md §8's must-fail table: "PATCH .../feeds body {created_at: now+1 day} ->
+  // 400/409, 23514 (feeds_created_at_not_future) - this one now differs from v1.1: a past
+  // created_at on this same call succeeds (see AC-5.2b above); only a future one is rejected."
+  test('AC-5.2c (v1.2, new) — PATCH setting created_at more than 5 min in the future is rejected (400/409, 23514)', async () => {
+    const row = await rest.insertFeed({ logged_by: QA_LOGGED_BY });
+    try {
+      const r = await rest.attemptPatchFutureCreatedAt(row.id);
+      expect([400, 409]).toContain(r.status);
+      expect(r.body && r.body.code).toBe('23514');
+
+      const after = await rest.getById(row.id);
+      expect(after.created_at).toBe(row.created_at); // unchanged — the rejected PATCH never applied
+    } finally {
+      await rest.softDeleteById(row.id);
+    }
+  });
+
+  // v1.2, contract.md §6.H/§8: pet_id and logged_by are still never editable through PATCH,
+  // even though created_at now is (AC-21.8).
+  test('AC-21.8a (v1.2, new) — PATCH trying to change pet_id is rejected (401/403, 42501)', async () => {
+    const pumoId = await rest.getPetIdBySlug('pumo');
+    const zuumiId = await rest.getPetIdBySlug('zuumi');
+    const row = await rest.insertFeed({ petId: zuumiId, logged_by: QA_LOGGED_BY });
+    try {
+      const r = await rest.attemptPatchPetId(row.id, pumoId);
       expect([401, 403]).toContain(r.status);
       expect(r.body && r.body.code).toBe('42501');
 
       const after = await rest.getById(row.id);
-      expect(after).not.toBeNull();
-      expect(after.created_at).toBe(row.created_at); // unchanged
+      expect(after.pet_id).toBe(zuumiId); // unchanged — still Zuumi's, never moved to Pumo's
+    } finally {
+      await rest.softDeleteById(row.id);
+    }
+  });
+
+  test('AC-21.8b (v1.2, new) — PATCH trying to change logged_by is rejected (401/403, 42501)', async () => {
+    const row = await rest.insertFeed({ logged_by: QA_LOGGED_BY });
+    try {
+      const r = await rest.attemptPatchLoggedBy(row.id, 'QA-test-hacked');
+      expect([401, 403]).toContain(r.status);
+      expect(r.body && r.body.code).toBe('42501');
+
+      const after = await rest.getById(row.id);
+      expect(after.logged_by).toBe(QA_LOGGED_BY); // unchanged
     } finally {
       await rest.softDeleteById(row.id);
     }

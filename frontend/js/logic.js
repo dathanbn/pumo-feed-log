@@ -8,6 +8,7 @@ import {
   FEED_DAY_START_HOUR,
   HEATMAP_WEEKS,
   DEFAULT_PET_SLUG,
+  EDIT_FUTURE_GRACE_MS,
 } from './constants.js';
 
 /**
@@ -318,6 +319,50 @@ export function newFeedId() {
 export function deleteAriaLabel(feed, now) {
   const name = feed.logged_by || 'Someone';
   return `Delete feed from ${formatFeedLabel(feed, now)}, by ${name}`;
+}
+
+/**
+ * The accessible label for a row's Edit control. Same pattern as deleteAriaLabel.
+ * (design.md §7, v1.2)
+ * @param {Feed} feed
+ * @param {Date} now
+ * @returns {string}
+ */
+export function editAriaLabel(feed, now) {
+  const name = feed.logged_by || 'Someone';
+  return `Edit feed from ${formatFeedLabel(feed, now)}, by ${name}`;
+}
+
+// ---- v1.2: editing a feed's time (contract.md §7.11) -----------------------------------------
+
+/**
+ * Computes the corrected `created_at` for the inline time editor (design.md §3.6b). The edited
+ * feed keeps its original calendar date — only the time-of-day changes. Pure, field-based
+ * construction (DST-safe), the same pattern as `startOfFeedDay`. (contract.md §7.11)
+ * @param {string} originalIso - the feed's current `created_at`
+ * @param {string} timeValue - an `<input type="time">` element's `.value`: '' or 'HH:MM'
+ * @param {Date} now
+ * @returns {{ok: true, iso: string, unchanged: boolean} | {ok: false, reason: 'invalid'|'future'}}
+ */
+export function computeEditedTimestamp(originalIso, timeValue, now) {
+  if (!/^\d{2}:\d{2}$/.test(timeValue || '')) {
+    return { ok: false, reason: 'invalid' };
+  }
+  const original = new Date(originalIso);
+  const [h, m] = timeValue.split(':').map(Number);
+  const candidate = new Date(
+    original.getFullYear(),
+    original.getMonth(),
+    original.getDate(),
+    h,
+    m,
+    0,
+    0
+  );
+  if (candidate.getTime() > now.getTime() + EDIT_FUTURE_GRACE_MS) {
+    return { ok: false, reason: 'future' };
+  }
+  return { ok: true, iso: candidate.toISOString(), unchanged: candidate.getTime() === original.getTime() };
 }
 
 // ---- v1.1: heatmap (contract.md §7.8) --------------------------------------------------------

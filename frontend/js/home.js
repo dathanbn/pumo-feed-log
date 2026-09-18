@@ -41,6 +41,12 @@ import {
   renderPetPicker,
 } from './ui.js';
 
+// D6 polish: not a contract.md §7.1 constant (it governs no server behavior) — just how long
+// the row's "This feed was deleted." message (design.md §3.6b) gets to sit on screen before the
+// follow-up background refresh is allowed to drop the row, so it's actually readable rather
+// than disappearing within one GET round-trip.
+const EDIT_DELETED_MESSAGE_DELAY_MS = 1200;
+
 // ---- DOM references -------------------------------------------------------------------------
 const petPickerEl = document.getElementById('pet-picker');
 const petNameEl = document.getElementById('pet-name');
@@ -157,6 +163,11 @@ function focusAfterDelete(targetIndex) {
   }
 }
 
+function focusEditButtonAfterSave(targetIndex) {
+  const editButtons = recentListEl.querySelectorAll('.row__edit');
+  if (editButtons[targetIndex]) editButtons[targetIndex].focus();
+}
+
 /**
  * Removes `feed` from local state (recent list + today's count) and re-renders immediately,
  * without waiting on a server refetch. A successful soft-delete/undo must not depend on the
@@ -193,6 +204,51 @@ async function deleteFeed(id) {
   return result;
 }
 
+/**
+ * Saves a corrected time for `feed` (v1.2, contract.md §6.H). On a normal success, applies the
+ * update locally and re-renders through the exact same renderDataBlock()/renderButtonLabel()
+ * path already used after a delete (AC-21.3) — no new partial-render logic. On `alreadyDeleted`,
+ * deliberately does NOT touch state or re-render synchronously (so the row's own "This feed was
+ * deleted." message, design.md §3.6b, is actually visible for a moment) and instead only kicks
+ * the same background refresh a delete already triggers, which will drop the row once it lands.
+ * @param {{id: string, created_at: string}} feed - the feed as it was *before* this edit
+ * @param {string} newIso
+ */
+async function editFeedTime(feed, newIso) {
+  const result = await api.updateFeedTime(feed.id, newIso);
+  resetFailure();
+  if (result.alreadyDeleted) {
+    announce('This feed was deleted');
+    // Delayed on purpose (D6) — give the row's own message a real reading window before the
+    // background refresh (which would otherwise land within one GET round-trip) drops the row.
+    setTimeout(() => {
+      refresh({ background: true }).catch(() => {});
+    }, EDIT_DELETED_MESSAGE_DELAY_MS);
+    return result;
+  }
+  const now = new Date();
+  const wasToday = isFeedToday(feed, now);
+  const isNowToday = isFeedToday(result, now);
+  state.recent = state.recent
+    .map((f) => (f.id === result.id ? result : f))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  if (wasToday && !isNowToday) state.todayCount = Math.max(0, state.todayCount - 1);
+  else if (!wasToday && isNowToday) state.todayCount += 1;
+  if (['loading', 'ready', 'guarded', 'load-failed'].includes(state.button)) {
+    state.button = idleButtonFromGuard(now);
+    state.currentGuard = null;
+  }
+  renderDataBlock(now);
+  renderButtonLabel(now);
+  announce('Feed time updated');
+  // The re-sort above may have moved the edited feed, so focus its NEW position, not wherever
+  // it used to sit in the (now stale) pre-edit order.
+  focusEditButtonAfterSave(state.recent.findIndex((f) => f.id === result.id));
+  // Background sync only — see deleteFeed's own note above; the same reconciliation pattern.
+  refresh({ background: true }).catch(() => {});
+  return result;
+}
+
 function renderRecentList(now) {
   recentListEl.textContent = '';
   if (state.recent.length === 0) {
@@ -208,6 +264,7 @@ function renderRecentList(now) {
       timeOnly: false,
       getConsequence: () => deleteConsequence(feed, state.recent, state.todayCount, new Date()),
       onConfirmDelete: (id) => deleteFeed(id),
+      onConfirmEdit: (id, newIso) => editFeedTime(feed, newIso),
     });
     recentListEl.appendChild(element);
   }
@@ -595,6 +652,13 @@ async function refresh({ background }) {
     if (['loading', 'ready', 'guarded', 'load-failed'].includes(state.button)) {
       state.button = idleButtonFromGuard(now);
       state.currentGuard = null;
+    }
+    // D6: an unrelated background refresh (tick/focus/another row's own action) must not yank
+    // away a row's open Edit or Delete flow mid-interaction. State above is still kept fresh;
+    // only the visible rebuild is skipped, and the next refresh (there's always another one
+    // along shortly) picks it up once every row is back to normal.
+    if (background && recentListEl.querySelector('[data-row-open]')) {
+      return true;
     }
     renderAll(now);
     return true;

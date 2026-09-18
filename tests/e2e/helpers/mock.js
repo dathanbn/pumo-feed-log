@@ -471,7 +471,10 @@ async function mockHomeDataPerPetAndWrites(page, dataBySlug = {}, { pets } = {})
  * test that wants to read it — but the mock updates it ITSELF (see below), so a caller does
  * NOT need to (and should not) mutate it manually.
  */
-async function mockHomeDataAndWrites(page, { recent = [], todayCount = 0, pets, postDelayMs = 0, patchFailFirst = 0 } = {}) {
+async function mockHomeDataAndWrites(
+  page,
+  { recent = [], todayCount = 0, pets, postDelayMs = 0, getDelayMs = 0, patchFailFirst = 0, alreadyDeletedIds = [] } = {}
+) {
   const petRows = await mockPets(page, pets);
   // A live, mutable state object — NOT a fixed snapshot closed over at call time — because
   // this app's own "refetch right after a write resolves" behavior (confirmed by direct repro:
@@ -488,9 +491,24 @@ async function mockHomeDataAndWrites(page, { recent = [], todayCount = 0, pets, 
   // GET response that raced ahead of the caller's own state update.
   const state = { recent: recent.slice(), todayCount };
   let patchAttempts = 0;
+  // v1.2: ids that have been PATCHed as "already deleted" (AC-21.6/S19) — starts empty even
+  // when the caller passes `alreadyDeletedIds`, so the row still shows on the INITIAL load (it
+  // has to, for a test to click Edit on it) and only disappears from a GET that happens AFTER
+  // the alreadyDeleted PATCH actually resolves, simulating "another phone" deleting it in the
+  // interim. Populated at that PATCH's own fulfill time, same "mutate inside the handler"
+  // reasoning as this function's own header comment already explains for POST/PATCH.
+  const goneIds = new Set();
   await page.route(FEEDS_GLOB, async (route) => {
     const req = route.request();
     if (req.method() === 'GET') {
+      // v1.2 (D6, qa-report.md): before the Frontend agent's fix, a zero-latency mocked GET
+      // could make the background refresh that follows an `alreadyDeleted` edit race the row's
+      // own local "This feed was deleted." render (confirmed by direct repro, flaky ~1-in-3
+      // across repeated runs). `home.js`/`history.js` now delay that refresh themselves
+      // (`EDIT_DELETED_MESSAGE_DELAY_MS`), so `21-edit-time.spec.js` no longer needs this option
+      // for that scenario — kept as a general opt-in (default 0) for any test that wants to
+      // simulate a slower GET round trip for some other reason.
+      if (getDelayMs) await new Promise((r) => setTimeout(r, getDelayMs));
       let u;
       try {
         u = new URL(req.url());
@@ -500,8 +518,9 @@ async function mockHomeDataAndWrites(page, { recent = [], todayCount = 0, pets, 
       const select = u.searchParams.get('select') || '';
       const selectNorm = select.replace(/\s/g, '');
       const limit = u.searchParams.get('limit');
+      const visibleRecent = state.recent.filter((f) => !goneIds.has(f.id));
       if ((selectNorm === 'id,pet_id,created_at,logged_by' || selectNorm === 'id,created_at,logged_by') && limit === '3') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.recent.slice(0, 3)) });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(visibleRecent.slice(0, 3)) });
       }
       if (select === 'id' && u.searchParams.has('created_at') && !limit) {
         const arr = Array.from({ length: state.todayCount }, (_, i) => ({ id: `mock-count-${i}` }));
@@ -543,9 +562,127 @@ async function mockHomeDataAndWrites(page, { recent = [], todayCount = 0, pets, 
       const u = new URL(req.url());
       const idMatch = (u.searchParams.get('id') || '').match(/^eq\.(.+)$/);
       const id = idMatch ? idMatch[1] : null;
+
+      // v1.2 (contract.md §6.H): an edit-time PATCH sends {created_at: newIso} — never
+      // deleted_at. Handled distinctly from the pre-existing soft-delete/undo PATCH shape
+      // below (which sends {deleted_at: ...}), since the two need different mocked responses:
+      // an edit needs the FULL updated row echoed back (pet_id/logged_by preserved, created_at
+      // changed) so the caller's own re-render (home.js/history.js editFeedTime) has real
+      // fields to work with, not just {id, deleted_at}.
+      if (body.created_at !== undefined && body.deleted_at === undefined) {
+        if (id && alreadyDeletedIds.includes(id)) {
+          // AC-21.6/S19: the target was deleted (by "another phone") before this save landed —
+          // contract.md §6.H's alreadyDeleted shape is an empty array, not an error. Mark it
+          // gone NOW (not before), so it's still visible on the initial load but absent from
+          // any GET from this point on — exactly mirroring the real database's own timeline.
+          goneIds.add(id);
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+        }
+        const existing = state.recent.find((f) => f.id === id);
+        const row = {
+          id: id || 'unknown',
+          pet_id: (existing && existing.pet_id) || (petRows[0] && petRows[0].id) || MOCK_PET_IDS[DEFAULT_PET_SLUG],
+          created_at: body.created_at,
+          logged_by: existing ? existing.logged_by : null,
+          deleted_at: null,
+        };
+        if (existing) {
+          state.recent = state.recent.map((f) => (f.id === id ? row : f));
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([row]) });
+      }
+
       if (id && state.recent.some((f) => f.id === id)) {
         state.recent = state.recent.filter((f) => f.id !== id);
         state.todayCount = Math.max(0, state.todayCount - 1);
+      }
+      const row = { id: id || 'unknown', deleted_at: body.deleted_at || new Date().toISOString() };
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([row]) });
+    }
+    return route.continue();
+  });
+  return state;
+}
+
+/**
+ * v1.2: like mockHomeDataAndWrites, but for history.html's single-first-page GET (contract.md
+ * §6.E) plus PATCH (both the pre-existing soft-delete/undo shape and the new edit-time shape,
+ * contract.md §6.H) — needed for specs/21-edit-time.spec.js's history-side scenarios (AC-21.1
+ * through AC-21.8 name both "a home row and a history row"). One combined route registration,
+ * for the same registration-order/race reasons mockHomeDataAndWrites's own doc comment
+ * explains (state mutated INSIDE the handler, at fulfill time, not by the caller afterward).
+ * `feeds` is the single first page (newest-first); "Show older feeds" always resolves empty
+ * here — use mockHistoryPages for a genuine multi-page pagination test.
+ */
+async function mockHistoryFirstPageAndWrites(
+  page,
+  feeds = [],
+  { pets, patchFailFirst = 0, alreadyDeletedIds = [], getDelayMs = 0 } = {}
+) {
+  const petRows = await mockPets(page, pets);
+  const state = { feeds: feeds.slice() };
+  let patchAttempts = 0;
+  // Same "gone only after the alreadyDeleted PATCH resolves" reasoning as
+  // mockHomeDataAndWrites's own goneIds — see that function's comment.
+  const goneIds = new Set();
+  await page.route(FEEDS_GLOB, async (route) => {
+    const req = route.request();
+    if (req.method() === 'GET') {
+      // See mockHomeDataAndWrites's own `getDelayMs` comment (AC-21.6b/c, S19) — same
+      // zero-latency-mock-races-the-message reasoning applies here.
+      if (getDelayMs) await new Promise((r) => setTimeout(r, getDelayMs));
+      let u;
+      try {
+        u = new URL(req.url());
+      } catch {
+        return route.continue();
+      }
+      const select = u.searchParams.get('select') || '';
+      const selectNorm = select.replace(/\s/g, '');
+      const limit = u.searchParams.get('limit');
+      if ((selectNorm === 'id,pet_id,created_at,logged_by' || selectNorm === 'id,created_at,logged_by') && limit === '100') {
+        const hasBefore = u.searchParams.has('created_at');
+        const body = hasBefore ? [] : state.feeds.filter((f) => !goneIds.has(f.id));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      }
+      return route.continue();
+    }
+    if (req.method() === 'PATCH') {
+      if (patchAttempts < patchFailFirst) {
+        patchAttempts += 1;
+        return route.abort('failed');
+      }
+      let body = {};
+      try {
+        body = JSON.parse(req.postData() || '{}');
+      } catch {
+        /* ignore */
+      }
+      const u = new URL(req.url());
+      const idMatch = (u.searchParams.get('id') || '').match(/^eq\.(.+)$/);
+      const id = idMatch ? idMatch[1] : null;
+
+      if (body.created_at !== undefined && body.deleted_at === undefined) {
+        if (id && alreadyDeletedIds.includes(id)) {
+          goneIds.add(id);
+          return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+        }
+        const existing = state.feeds.find((f) => f.id === id);
+        const row = {
+          id: id || 'unknown',
+          pet_id: (existing && existing.pet_id) || (petRows[0] && petRows[0].id) || MOCK_PET_IDS[DEFAULT_PET_SLUG],
+          created_at: body.created_at,
+          logged_by: existing ? existing.logged_by : null,
+          deleted_at: null,
+        };
+        if (existing) {
+          state.feeds = state.feeds.map((f) => (f.id === id ? row : f));
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([row]) });
+      }
+
+      if (id && state.feeds.some((f) => f.id === id)) {
+        state.feeds = state.feeds.filter((f) => f.id !== id);
       }
       const row = { id: id || 'unknown', deleted_at: body.deleted_at || new Date().toISOString() };
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([row]) });
@@ -583,6 +720,7 @@ module.exports = {
   mockHistoryFirstPageDynamic,
   mockSuccessfulWrites,
   mockHomeDataAndWrites,
+  mockHistoryFirstPageAndWrites,
   mockLostResponseThenConflict,
   countFeedRequests,
 };

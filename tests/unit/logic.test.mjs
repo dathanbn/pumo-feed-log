@@ -24,6 +24,7 @@ import {
   feedsToCsv,
   petSlugFromLocation,
   pathForPet,
+  computeEditedTimestamp,
 } from '../../frontend/js/logic.js';
 
 import {
@@ -32,6 +33,7 @@ import {
   NAME_MAX_LENGTH,
   HEATMAP_WEEKS,
   DEFAULT_PET_SLUG,
+  EDIT_FUTURE_GRACE_MS,
 } from '../../frontend/js/constants.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -635,5 +637,91 @@ describe('petSlugFromLocation / pathForPet (v1.1, contract.md §7.10)', () => {
   test('pathForPet for any other slug returns "{page}?pet={slug}"', () => {
     assert.equal(pathForPet('zuumi'), 'index.html?pet=zuumi');
     assert.equal(pathForPet('banh-mi', 'history.html'), 'history.html?pet=banh-mi');
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+describe('computeEditedTimestamp (v1.2, contract.md §7.11)', () => {
+  test('a valid past-today time returns {ok:true, unchanged:false}, preserving the original calendar date', () => {
+    const now = new Date(2026, 8, 16, 20, 0, 0, 0);
+    const originalIso = new Date(2026, 8, 16, 7, 42, 0, 0).toISOString();
+    const result = computeEditedTimestamp(originalIso, '08:15', now);
+    assert.equal(result.ok, true);
+    assert.equal(result.unchanged, false);
+    const edited = new Date(result.iso);
+    assert.equal(edited.getFullYear(), 2026);
+    assert.equal(edited.getMonth(), 8);
+    assert.equal(edited.getDate(), 16); // same calendar date as the original, not shifted
+    assert.equal(edited.getHours(), 8);
+    assert.equal(edited.getMinutes(), 15);
+  });
+
+  test('the exact original time round-trips to {unchanged: true}', () => {
+    const now = new Date(2026, 8, 16, 20, 0, 0, 0);
+    const original = new Date(2026, 8, 16, 7, 42, 0, 0);
+    const result = computeEditedTimestamp(original.toISOString(), '07:42', now);
+    assert.equal(result.ok, true);
+    assert.equal(result.unchanged, true);
+  });
+
+  test(`a time more than EDIT_FUTURE_GRACE_MS (${EDIT_FUTURE_GRACE_MS}ms) past now on today's date is rejected as 'future'`, () => {
+    const now = new Date(2026, 8, 16, 10, 0, 0, 0); // 10:00 AM
+    const originalIso = new Date(2026, 8, 16, 7, 0, 0, 0).toISOString();
+    // 10:10 AM is 10 minutes after `now`, well past the 5-minute grace window.
+    const result = computeEditedTimestamp(originalIso, '10:10', now);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'future');
+  });
+
+  test('a time within the grace window (e.g. 2 minutes ahead) is accepted', () => {
+    const now = new Date(2026, 8, 16, 10, 0, 0, 0); // 10:00 AM
+    const originalIso = new Date(2026, 8, 16, 7, 0, 0, 0).toISOString();
+    const result = computeEditedTimestamp(originalIso, '10:02', now);
+    assert.equal(result.ok, true);
+    assert.equal(result.unchanged, false);
+  });
+
+  test('an empty string is rejected as invalid', () => {
+    const now = new Date(2026, 8, 16, 20, 0, 0, 0);
+    const originalIso = new Date(2026, 8, 16, 7, 42, 0, 0).toISOString();
+    const result = computeEditedTimestamp(originalIso, '', now);
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'invalid');
+  });
+
+  test('a malformed value (not matching HH:MM) is rejected as invalid', () => {
+    const now = new Date(2026, 8, 16, 20, 0, 0, 0);
+    const originalIso = new Date(2026, 8, 16, 7, 42, 0, 0).toISOString();
+    for (const bad of ['7:42', '742', 'not-a-time', '07:42:00', '07-42']) {
+      const result = computeEditedTimestamp(originalIso, bad, now);
+      assert.equal(result.ok, false, `expected ${bad} to be invalid`);
+      assert.equal(result.reason, 'invalid');
+    }
+  });
+
+  test('2026-03-08 (America/Los_Angeles spring-forward day): an edit still lands on the same calendar date', () => {
+    const now = new Date(2026, 2, 8, 20, 0, 0, 0);
+    const originalIso = new Date(2026, 2, 8, 1, 15, 0, 0).toISOString();
+    const result = computeEditedTimestamp(originalIso, '04:30', now);
+    assert.equal(result.ok, true);
+    const edited = new Date(result.iso);
+    assert.equal(edited.getFullYear(), 2026);
+    assert.equal(edited.getMonth(), 2);
+    assert.equal(edited.getDate(), 8);
+    assert.equal(edited.getHours(), 4);
+    assert.equal(edited.getMinutes(), 30);
+  });
+
+  test('2026-11-01 (America/Los_Angeles fall-back day): an edit still lands on the same calendar date', () => {
+    const now = new Date(2026, 10, 1, 20, 0, 0, 0);
+    const originalIso = new Date(2026, 10, 1, 1, 15, 0, 0).toISOString();
+    const result = computeEditedTimestamp(originalIso, '04:30', now);
+    assert.equal(result.ok, true);
+    const edited = new Date(result.iso);
+    assert.equal(edited.getFullYear(), 2026);
+    assert.equal(edited.getMonth(), 10);
+    assert.equal(edited.getDate(), 1);
+    assert.equal(edited.getHours(), 4);
+    assert.equal(edited.getMinutes(), 30);
   });
 });

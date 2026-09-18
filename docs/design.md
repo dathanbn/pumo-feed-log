@@ -88,13 +88,13 @@ If a color changes during a future build, re-measure it — these are the last-m
 │                                     │
 │ RECENT                              │  small caps label, muted
 │ ┌─────────────────────────────────┐ │
-│ │ Today, 7:42 AM             [🗑] │ │  row: 56px min height
+│ │ Today, 7:42 AM         [✏️][🗑] │ │  row: 56px min height
 │ │ by Sam                          │ │  line 1 --text 17px semibold
 │ ├─────────────────────────────────┤ │  line 2 --muted 15px
-│ │ Today, 3:10 AM             [🗑] │ │  delete: 44x44 icon button, right
-│ │ by Alex                         │ │
+│ │ Today, 3:10 AM         [✏️][🗑] │ │  edit + delete: two 44x44 icon
+│ │ by Alex                         │ │  buttons, right, 4px apart (§3.6b, v1.2)
 │ ├─────────────────────────────────┤ │
-│ │ Yesterday, 9:55 PM         [🗑] │ │
+│ │ Yesterday, 9:55 PM     [✏️][🗑] │ │
 │ │ by Someone                      │ │
 │ └─────────────────────────────────┘ │
 │                                     │
@@ -143,6 +143,18 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 - When it opens, focus moves to Cancel, and Escape cancels. "Deleting…" replaces the buttons while the request is in flight.
 - On failure: "Couldn't delete." in `--warn-text`, with **Retry** and **Cancel**.
 
+### 3.6b Edit time (inline, replaces the row) — v1.2, new
+- A small ✏️ Edit icon button (44×44, `--muted` icon color like the existing Delete icon) sits immediately to the left of Delete, 4 px between them (§3.1's mockup). Same visibility rule as Delete: shown only while the row is in its normal state.
+- Tapping it opens the row inline (row grows, same "replaces the row" pattern as §3.6 — never a popup/modal, consistent with §1's no-popup philosophy): a visible `<label>` "Edit time" above a native `<input type="time">` pre-filled with the feed's current local time, sized for a comfortable 44px-tall tap target.
+- Two buttons below the input: **Cancel** (outlined) and **Save** (`--accent` fill), same 44px/12px-gap sizing as Delete's Cancel/Delete pair.
+- When it opens, focus moves to the time input, and Escape cancels — identical interaction shape to §3.6's delete confirmation. Opening Edit on one row closes any other row's open Edit *or* Delete confirmation first (they share the single "one open row at a time" rule, AC-10.5).
+- **Save, time unchanged:** closes immediately, no network call, no visible state change.
+- **Save, valid new time:** "Saving…" replaces the buttons while the request is in flight, then the row returns to normal showing the corrected time.
+- **Save, time is later than now (+ a few minutes' grace):** an inline message appears above the buttons — "Can't set a future time." in `--warn-text` — the editor stays open with the input still showing the rejected value, so the person can just change it and tap Save again. No network call happens for a value rejected client-side.
+- **Save fails on the network:** "Couldn't save." in `--warn-text`, with **Retry** and **Cancel**, mirroring §3.6's delete-failure state exactly.
+- **The target feed was deleted (by any phone) before Save reached the server:** the row shows "This feed was deleted." and the list refreshes, dropping the row — same shape as Delete's already-deleted case, just worded for edit.
+- Editing only ever changes the time-of-day; the date shown alongside it (in the row's heading/label, e.g. "Today" or the day-group heading on history) never changes as a result of an edit (contract.md §7.11).
+
 ### 3.7 Name card (first visit on a phone only)
 - `--surface` card below the history link.
 - Title "Who's feeding Pumo?", then the body "Pick a name for this phone so everyone sees who logged each feed. No account needed."
@@ -155,16 +167,17 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 ┌─────────────────────────────────────┐
 │ ‹ Pumo                              │  back link to index.html, 44px, pet-scoped (§3.0/§4.0)
 │ Feed history                        │  h1
-│ [        Download CSV             ] │  §4.2, outlined button below h1
 │                                     │
-│ [ heatmap: 5 weeks, Sun...Sat ]     │  §4.1, above the feed list
+│ ┌───────────────────────[CSV ⬇]──┐ │  §4.2 (v1.2: moved into the heatmap
+│ │ [ heatmap: 5 weeks, Sun...Sat ] │ │  card's own top-right corner, subtle
+│ └─────────────────────────────────┘ │  text style — no longer under h1)
 │                                     │
 │ Today                       2 feeds │  h2 + muted count, right aligned
 │ ┌─────────────────────────────────┐ │
-│ │ 7:42 AM                    [🗑] │ │  same row component as home,
+│ │ 7:42 AM                [✏️][🗑] │ │  same row component as home,
 │ │ by Sam                          │ │  but time only (day is in heading)
 │ ├─────────────────────────────────┤ │
-│ │ 3:10 AM                    [🗑] │ │
+│ │ 3:10 AM                [✏️][🗑] │ │
 │ │ by Alex                         │ │
 │ └─────────────────────────────────┘ │
 │ Yesterday                   4 feeds │
@@ -180,7 +193,7 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 - The back link and the whole page are scoped to whichever pet's URL opened it, per §3.0/contract.md §7.10.
 
 ### 4.1 Feeding heatmap (v1.1, new — above the day-grouped list)
-- A `--surface` card, full column width, containing a small legend (4 swatches + "0" / "1" / "2" / "3" / "4+", left to right, muted 13px text under or beside the swatches) and a 7-column grid below it: `Sun Mon Tue Wed Thu Fri Sat` as a muted 12px header row, then `HEATMAP_WEEKS` (5) rows of date cells, oldest week first (top), current (possibly partial) week last (bottom) — so it reads top-to-bottom like a wall calendar, newest at the bottom nearest the list it introduces.
+- A `--surface` card, full column width. **v1.2:** the card now has a thin header row at the very top, holding only the CSV button (§4.2) right-aligned — a static header the heatmap's own re-render never clears (architecture.md §4 flags exactly which DOM node `renderHeatmap` is allowed to wipe, since it's no longer the whole card). Below that header, unchanged from v1.1: a small legend (4 swatches + "0" / "1" / "2" / "3" / "4+", left to right, muted 13px text under or beside the swatches) and a 7-column grid below it: `Sun Mon Tue Wed Thu Fri Sat` as a muted 12px header row, then `HEATMAP_WEEKS` (5) rows of date cells, oldest week first (top), current (possibly partial) week last (bottom) — so it reads top-to-bottom like a wall calendar, newest at the bottom nearest the list it introduces.
 - Each cell: a rounded-rect (8px radius) roughly square (min 40×40 including gap, so 5 weeks × 7 columns fits 375px width with the page's 16px gutters — do the arithmetic against the real gutter/gap values chosen, this is a floor not an exact spec), the date number in its top-left corner in 11px `--muted`-on-empty / an on-fill-appropriate color on filled tiers, and a fill color from a 5-step sequential ramp (0 = `--surface` or `--divider`, 1 through 4 = increasing-intensity steps of the `--accent` family — check the dataviz skill for the exact ramp method, it must hold WCAG contrast between adjacent steps and for the date-number text sitting on top of each step, in both light and dark).
 - A cell for a future date — the only kind of out-of-range cell that exists, since the grid is anchored on today and always starts on a Sunday (contract.md §7.8) — renders at the 0/empty tier but slightly reduced opacity (0.4) and is not tappable. This only ever affects days later in the *current* (bottom) row, never the first row. A day with genuinely zero feeds (including before the household had this pet) is not out-of-range — it's a normal, tappable, empty-tier cell; there's no way to distinguish "0 feeds" from "pet didn't exist yet" in the data, so don't try to.
 - Today's cell gets a 2px `--accent` (or `--accent-strong`, whichever is defined) outline in addition to its fill, regardless of tier, so "today" is always findable at a glance.
@@ -188,10 +201,11 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 - Every cell is a real `<button>` (even the non-interactive padding ones, `disabled`), with `aria-label` stating the full date and count, e.g. `aria-label="Tuesday, September 15: 3 feeds"` — never relying on the visual date number plus color alone.
 - Under `prefers-reduced-motion: reduce`, the expand/collapse is instant (no slide/height transition), consistent with §1's motion rules elsewhere.
 
-### 4.2 Download CSV button (v1.1, new)
-- An outlined button (`.btn.btn--outline`, matching the existing "Show older feeds" visual weight, not the primary accent button — this is a secondary, occasional action), placed directly under the `<h1>` and above the heatmap, full width like other secondary buttons on this screen.
-- Label: "Download CSV". While fetching all pages for the export, it shows a spinner and "Preparing…", disabled, matching the `checking`/`loading` button-state visual language already established for the Log button (design.md §3.4) rather than inventing a new style.
-- `aria-label="Download {pet name}'s feed history as CSV"` (AC-19.5) — the visible label stays short ("Download CSV"); the fuller pet-specific name is accessible-only, since the page's own `<h1>`/pet context already makes it visually obvious which pet.
+### 4.2 Download CSV button (v1.1; **restyled and moved in v1.2**)
+- **v1.2 change:** moved off its own full-width row under `<h1>` into the heatmap card's new header row (§4.1), right-aligned. Restyled from the outlined `.btn--outline` (visually heavy, competed with the heatmap for attention right above it) to the existing `.btn--text` variant (text-colored `--accent-strong`, no fill or border, `flex: none` so it doesn't stretch) — the app's established "subtle" button style, not a new one. Icon (a small download-arrow SVG, `aria-hidden`) plus the short label "CSV" (shortened from "Download CSV" now that it's a compact corner control, not a full-width row); the fuller wording moves entirely into the accessible name.
+- Label: visible text "CSV" next to a small download icon. While fetching all pages for the export, the icon becomes the existing spinner and the label reads "Preparing…", disabled — same `checking`/`loading` visual language as the Log button (§3.4), unchanged from v1.1.
+- `aria-label="Download {pet name}'s feed history as CSV"` (AC-19.5) — unchanged from v1.1. The visible label is now even shorter than the accessible name, so this label carries more of the weight than before; don't drop it.
+- Still a real `<button>`, still keyboard-reachable, still at least 44×44 (padding, not visible size, keeps the tap target — a `.btn--text` this small needs `padding: 0 8px` plus enough line-height/min-height to hit 44px, don't let the compact visual size shrink the actual target).
 
 ## 5. Copy (exact strings)
 | Where | Text |
@@ -207,6 +221,11 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | Row delete, accessible label | Delete feed from {day and time}, by {name or Someone} |
 | Delete confirm | Delete the {label} feed? {consequence} · Cancel · Delete |
 | Delete in flight / failed | Deleting… / Couldn't delete. · Retry · Cancel |
+| Row edit, accessible label (v1.2) | Edit feed from {day and time}, by {name or Someone} |
+| Edit time (v1.2) | Edit time · Cancel · Save |
+| Edit in flight / failed (v1.2) | Saving… / Couldn't save. · Retry · Cancel |
+| Edit, future time rejected (v1.2) | Can't set a future time. |
+| Edit, target already deleted (v1.2) | This feed was deleted. |
 | Undo notice | Logged {time} · Undo → Undoing… → Feed removed |
 | Undo failed | Couldn't undo · Retry · Dismiss |
 | History link | Full history |
@@ -221,7 +240,7 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | History empty | No feeds logged yet. |
 | History load error | Can't load history. · Try again |
 | Older page error | Couldn't load older feeds. · Retry |
-| CSV button | Download CSV |
+| CSV button (v1.2: short visible label, full wording moved to aria-label) | CSV (visible) / Download {pet}'s feed history as CSV (accessible name) |
 | CSV button, in flight | Preparing… |
 | CSV export failed | Couldn't prepare the download. · Retry |
 | Heatmap legend | 0 · 1 · 2 · 3 · 4+ |
@@ -248,13 +267,18 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | S14 | **localStorage unavailable** | No visible error. The name card's Skip or Save simply doesn't persist, and feeds log as "by Someone". |
 | S15 | **CSV export fails partway through paging** (v1.1) | The Download CSV button returns to its normal state; no partial file downloads. Shows "Couldn't prepare the download." with Retry, in the same warn style as other inline errors (frontend agent's call whether this is a transient banner or a persistent line under the button — document the choice). |
 | S16 | **Heatmap cell expanded, then its day's last feed is deleted** (v1.1) | The expanded panel updates to reflect zero feeds for that day within 1 s, consistent with F10's "other screens drop it on their next load or focus" rule, and the cell's own shade/tier recomputes. |
+| S17 | **Time edit: future value rejected** (v1.2) | Editor stays open, inline "Can't set a future time." appears above Cancel/Save, no network call (§3.6b). |
+| S18 | **Time edit: network failure while saving** (v1.2) | Row shows "Couldn't save." with Retry and Cancel, same shape as S8's delete failure (§3.6b). |
+| S19 | **Time edit: target feed deleted by another phone before Save lands** (v1.2) | Row shows "This feed was deleted." and the list refreshes, dropping the row (contract.md §6.H). |
 
 ## 7. Accessibility baseline
 
-- **Tap targets.** The primary button is full width and at least 64 px tall. Every other control (row Delete, Undo, Retry, Cancel, Dismiss, links, Save, Skip) is at least 44×44 CSS px, using padding where needed, with at least 8 px between neighbors.
+- **Tap targets.** The primary button is full width and at least 64 px tall. Every other control (row Delete, row Edit (v1.2), Undo, Retry, Cancel, Dismiss, links, Save, Skip, the compact CSV button (v1.2)) is at least 44×44 CSS px, using padding where needed, with at least 8 px between neighbors (4 px is the documented exception between Edit and Delete, §3.1/§3.6b — still comfortably separable, matching the row's own tight horizontal budget, AC-2.3a).
 - **Contrast.** It follows the §2 table: text at least 4.5:1, large text and UI boundaries at least 3:1, verified in both schemes. Warning states always pair color with text (the armed label, "daily limit reached", "Not saved") and, where noted, an icon.
 - **Screen-reader labels for icon-only elements.**
   - Row Delete: `aria-label="Delete feed from Today, 7:42 AM, by Sam"`.
+  - Row Edit (v1.2): `aria-label="Edit feed from Today, 7:42 AM, by Sam"`, same pattern as Delete's.
+  - CSV button (v1.2): `aria-label="Download {pet name}'s feed history as CSV"` even though its visible label is now just "CSV" — unchanged wording from v1.1, just carrying more weight now that the visible text is shorter.
   - Dismiss ✕: `aria-label="Dismiss"`.
   - The warning icon, check icon and spinner are `aria-hidden="true"`.
   - Avatar: Pumo's photo gets `alt="Pumo"`. The fallback SVG avatar is `aria-hidden` because the h1 already says "Pumo".
@@ -265,6 +289,8 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
   - The armed prompt, as "Pumo was fed 1h 40m ago. Tap again to log another feed." (or the daily or combined variant)
   - "Feed removed"
   - "Feed deleted"
+  - "Feed time updated" (v1.2, after a successful edit)
+  - "This feed was deleted" (v1.2, edit target no longer exists)
   - Load and refresh errors.
 - **Semantics.** `lang="en"`. One `<h1>` per page and `<h2>` for day headings. Lists use `<ul>`/`<li>`, times use `<time datetime="…">`, and every control is a real `<button>` or `<a>`.
 - **Keyboard.** Everything works with Tab, Enter and Space, and the focus ring is always visible (3 px `--accent` outline, 2 px offset). Escape closes a delete confirmation. After a delete, focus moves to the next row, or to the section heading if there is no next row.
@@ -276,8 +302,8 @@ Labels can wrap to two lines, and the button grows to fit. Text is never truncat
 | Asset | Needed? | Source | Spec |
 |---|---|---|---|
 | Pumo photo | Optional | Dathan puts a photo at `docs/assets/pumo.jpg` before the build (already supplied for v1) | The build center-crops it to a square, resizes to 256×256, strips EXIF (phone photos can carry GPS location), keeps it under 100 KB and saves it as `frontend/assets/pumo.jpg`, referenced by `pets.photo_url` (contract.md §1). Shown as a 48 px circle with a 2 px `--accent-strong` ring when selected, 40 px unringed in the picker row otherwise. |
-| Zuumi / Banh Mi photos (v1.1) | Optional, **not yet supplied** | Dathan said he'll add these later at `docs/assets/zuumi.jpg` / `docs/assets/banh-mi.jpg` | Same processing as Pumo's photo when present. Until supplied, `pets.photo_url` stays `null` for these two and they use the placeholder avatar below — this is the expected v1.1 launch state, not a defect. |
-| Placeholder avatar (v1.1, per pet without a photo) | Required for Zuumi and Banh Mi at launch | Build agent draws it (CSS/inline SVG, no image asset needed) | A filled circle, `--accent`-family tint for a cat (`species: 'cat'`), a `--border`-family neutral tint for a dog (`species: 'dog'`), with the pet's first initial centered in the header font. Cats and dogs need a shape/glyph distinction beyond color alone (§3.0) — a simple pair of pointed ear-shapes behind a cat's circle vs. none for a dog is enough; keep it as understated as the existing cat-head icon.svg. |
+| Zuumi / Banh Mi photos | **Supplied as of v1.2** | Dathan supplied both; cropped square to face, resized to 176×176 (matching Pumo's own asset dimensions) and saved as `frontend/assets/zuumi.jpg` / `frontend/assets/banh-mi.jpg`, referenced by `pets.photo_url` (contract.md §1/§2). | Same processing as Pumo's photo. All 3 pets now show a real photo; the placeholder below is exercised only by a hypothetical future 4th pet. |
+| Placeholder avatar (per pet without a photo) | Not currently used — kept for a future pet added without a photo yet | Build agent draws it (CSS/inline SVG, no image asset needed) | A filled circle, `--accent`-family tint for a cat (`species: 'cat'`), a `--border`-family neutral tint for a dog (`species: 'dog'`), with the pet's first initial centered in the header font. Cats and dogs need a shape/glyph distinction beyond color alone (§3.0) — a simple pair of pointed ear-shapes behind a cat's circle vs. none for a dog is enough; keep it as understated as the existing cat-head icon.svg. |
 | Avatar fallback (pre-v1.1, `Pumo`-specific) | Required | Build agent | `frontend/assets/icon.svg`, the same drawing as the app icon. As of v1.1 this is Pumo's specific fallback (species `cat`, matching the placeholder-avatar rule above) rather than a generic app fallback — the app icon itself (favicons, apple-touch-icon) is unaffected and stays pet-neutral. |
 | App icon | Required | Build agent draws it. Dathan may optionally supply a Canva design at `docs/assets/icon.png` (512×512 PNG), which then takes priority. | `frontend/assets/icon.svg` in a 512×512 viewBox: a `--accent` (`#0B6B66`) rounded square (rx 112) with a simple cream (`#FBF7F2`) cat head (a wide ellipse with two triangle ears) and two small teal eye dots. No text and no emoji, so it renders identically everywhere. |
 | Favicons | Required | Generated from the icon | `<link rel="icon" type="image/svg+xml" href="assets/icon.svg">`, plus `assets/favicon-32.png` (32×32) as a PNG fallback. |

@@ -28,10 +28,20 @@ import {
   icon,
 } from './ui.js';
 
+// D6 polish: not a contract.md §7.1 constant (it governs no server behavior) — just how long
+// the row's "This feed was deleted." message (design.md §3.6b) gets to sit on screen before the
+// follow-up background reload is allowed to drop the row, so it's actually readable rather
+// than disappearing within one GET round-trip.
+const EDIT_DELETED_MESSAGE_DELAY_MS = 1200;
+
 const backLinkEl = document.getElementById('back-link');
 const csvButtonEl = document.getElementById('csv-button');
 const csvErrorEl = document.getElementById('csv-error');
 const heatmapCardEl = document.getElementById('heatmap-card');
+// v1.2: renderHeatmap() now clears/rebuilds only this inner node, so the static
+// .heatmap__header (holding the CSV button) survives the heatmap's own re-renders.
+// (architecture.md §4's "Heatmap card DOM shape (v1.2 change)" note)
+const heatmapContentEl = document.getElementById('heatmap-content');
 const historyBodyEl = document.getElementById('history-body');
 const showOlderBtn = document.getElementById('show-older');
 const olderErrorEl = document.getElementById('older-error');
@@ -106,7 +116,7 @@ function renderHeatmapCard(now) {
   if (state.expandedKey) {
     expandedFeeds = state.feeds.filter((f) => feedDayKey(new Date(f.created_at)) === state.expandedKey);
   }
-  renderHeatmap(heatmapCardEl, {
+  renderHeatmap(heatmapContentEl, {
     heatmap,
     expandedKey: state.expandedKey,
     expandedFeeds,
@@ -128,15 +138,18 @@ function onHeatmapCellClick(cell) {
 }
 
 // ---- CSV export (design.md §4.2, contract.md §6.F.2, §7.9) --------------------------------------
+// v1.2: restyled from .btn--outline.btn--full to the existing (previously unused) .btn--text
+// variant, moved into the heatmap card's own header, and its visible label shortened to "CSV" —
+// the aria-label (below) is unchanged and now carries more of the weight (design.md §4.2).
 function renderCsvButton() {
   csvButtonEl.disabled = state.csvStatus === 'preparing';
   csvButtonEl.textContent = '';
-  csvButtonEl.className = 'btn btn--outline btn--full';
+  csvButtonEl.className = 'btn btn--text';
   if (state.csvStatus === 'preparing') {
     csvButtonEl.classList.add('is-checking');
     csvButtonEl.append(icon('spinner', 'spin'), document.createTextNode(` ${COPY.csvPreparing}`));
   } else {
-    csvButtonEl.textContent = COPY.csvButtonLabel;
+    csvButtonEl.append(icon('download'), document.createTextNode(` ${COPY.csvButtonLabel}`));
   }
   csvButtonEl.setAttribute('aria-label', `Download ${state.pet.name}'s feed history as CSV`);
 
@@ -255,6 +268,11 @@ function focusAfterDelete(targetIndex) {
   }
 }
 
+function focusEditButtonAfterSave(targetIndex) {
+  const editButtons = historyBodyEl.querySelectorAll('.row__edit');
+  if (editButtons[targetIndex]) editButtons[targetIndex].focus();
+}
+
 async function deleteFeed(id) {
   const targetIndex = state.feeds.findIndex((f) => f.id === id);
   const result = await api.softDeleteFeed(id);
@@ -267,6 +285,41 @@ async function deleteFeed(id) {
   // (S16: an expanded day's last feed being deleted updates within 1 s).
   render();
   focusAfterDelete(targetIndex);
+  return result;
+}
+
+/**
+ * Saves a corrected time for `feed` (v1.2, contract.md §6.H). On a normal success, updates
+ * state.feeds and calls the exact same full render() path deleteFeed() already uses (AC-21.3) —
+ * day-grouping, counts and the heatmap are all pure/live off state.feeds, so re-sorting the
+ * updated array and calling render() is enough, no new partial-render logic. On
+ * `alreadyDeleted`, deliberately does NOT touch state.feeds or call render() synchronously (so
+ * the row's own "This feed was deleted." message, design.md §3.6b, is actually visible for a
+ * moment) — instead it reloads the first page in the background, the same reload
+ * onFocusRefresh already triggers elsewhere in this file, which will drop the row once it lands.
+ * @param {{id: string, created_at: string}} feed - the feed as it was *before* this edit
+ * @param {string} newIso
+ */
+async function editFeedTime(feed, newIso) {
+  const result = await api.updateFeedTime(feed.id, newIso);
+  resetFailure();
+  if (result.alreadyDeleted) {
+    announce('This feed was deleted');
+    // Delayed on purpose (D6) — give the row's own message a real reading window before the
+    // background reload (which would otherwise land within one GET round-trip) drops the row.
+    setTimeout(() => {
+      loadFirstPage({ background: true }).catch(() => {});
+    }, EDIT_DELETED_MESSAGE_DELAY_MS);
+    return result;
+  }
+  state.feeds = state.feeds
+    .map((f) => (f.id === feed.id ? result : f))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  announce('Feed time updated');
+  render();
+  // The re-sort above may have moved the edited feed to a different day group, so focus its
+  // NEW flattened position, not wherever it used to sit in the (now stale) pre-edit order.
+  focusEditButtonAfterSave(state.feeds.findIndex((f) => f.id === result.id));
   return result;
 }
 
@@ -298,6 +351,7 @@ function renderGroups(now) {
         timeOnly: true,
         getConsequence: () => deleteConsequence(feed, state.feeds, todayCountFromFeeds(state.feeds, new Date()), new Date()),
         onConfirmDelete: (id) => deleteFeed(id),
+        onConfirmEdit: (id, newIso) => editFeedTime(feed, newIso),
       });
       ul.appendChild(element);
     }
@@ -360,6 +414,13 @@ async function loadFirstPage({ background }) {
     state.lastError = null;
     state.loadedAt = Date.now();
     hideBanner(refreshBannerEl);
+    // D6: an unrelated background reload (focus refresh, or another row's own action) must not
+    // yank away a row's open Edit or Delete flow mid-interaction. State above is still kept
+    // fresh; only the visible rebuild is skipped, and the next reload picks it up once every
+    // row is back to normal.
+    if (background && historyBodyEl.querySelector('[data-row-open]')) {
+      return true;
+    }
     render();
     return true;
   } catch (err) {
@@ -425,8 +486,7 @@ function renderPetLoadError() {
     buttonText: 'Try again',
     onButtonClick: () => initPet(),
   });
-  heatmapCardEl.hidden = true;
-  csvButtonEl.hidden = true;
+  heatmapCardEl.hidden = true; // the CSV button, nested inside, is hidden along with it
   showOlderBtn.hidden = true;
 }
 
@@ -440,7 +500,9 @@ async function initPet() {
 
     backLinkEl.href = pathForPet(state.pet.slug);
     backLinkEl.querySelector('.back-link__label').textContent = state.pet.name;
-    csvButtonEl.hidden = false;
+    // v1.2: the CSV button's hidden state now follows #heatmap-card's own hidden toggling
+    // (it's nested inside the card) instead of being set independently — it no longer appears
+    // before the first page of data has loaded (architecture.md §4's DOM-shape note).
     csvButtonEl.addEventListener('click', onCsvTap);
     renderCsvButton();
 

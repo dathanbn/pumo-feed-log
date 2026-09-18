@@ -231,10 +231,63 @@ async function attemptPostWithCreatedAt({ petSlug = DEFAULT_PET_SLUG, petId } = 
   });
 }
 
-/** PATCH trying to set created_at — must be rejected. Part of AC-5.2. */
+/** PATCH trying to set created_at to a fixed PAST date. Pre-v1.2 this had to be rejected
+ *  (42501, no update grant on created_at at all). v1.2 (contract.md §1/§3/§6.H) widens the
+ *  update grant to include created_at, with only a future value blocked by the
+ *  feeds_created_at_not_future CHECK constraint — so as of v1.2 this now SUCCEEDS. Kept under
+ *  its original name for the pre-v1.2 spec.md AC-5.2 test, which 00-rest-direct.spec.js's
+ *  v1.2 update now asserts the new (success) outcome for, rather than the old 42501 rejection —
+ *  see that spec's own comment on the v1.2 behavior change. */
 async function attemptPatchCreatedAt(id) {
   return request('PATCH', `?id=eq.${encodeURIComponent(id)}`, {
     body: { created_at: '2020-01-01T00:00:00Z' },
+    prefer: 'return=representation',
+  });
+}
+
+/** PATCH trying to set created_at to a value more than 5 minutes in the future — must be
+ *  rejected by the feeds_created_at_not_future CHECK constraint (v1.2, contract.md §1/§3/§8's
+ *  must-fail table): 400/409, code 23514. */
+async function attemptPatchFutureCreatedAt(id, { aheadMs = 24 * 60 * 60 * 1000 } = {}) {
+  return request('PATCH', `?id=eq.${encodeURIComponent(id)}&deleted_at=is.null`, {
+    body: { created_at: new Date(Date.now() + aheadMs).toISOString() },
+    prefer: 'return=representation',
+  });
+}
+
+/** PATCH trying to set created_at to a valid PAST value — must succeed as of v1.2
+ *  (contract.md §6.H). Used to confirm the update grant actually took, not just that a future
+ *  value is rejected. */
+async function attemptPatchPastCreatedAt(id, { behindMs = 60 * 60 * 1000 } = {}) {
+  return request('PATCH', `?id=eq.${encodeURIComponent(id)}&deleted_at=is.null`, {
+    body: { created_at: new Date(Date.now() - behindMs).toISOString() },
+    prefer: 'return=representation',
+  });
+}
+
+/** PATCH trying to change pet_id — must always be rejected (401/403, 42501), unchanged by
+ *  v1.2 (contract.md §6/§8's must-fail table: "which pet a feed belongs to is never editable"). */
+async function attemptPatchPetId(id, newPetId) {
+  return request('PATCH', `?id=eq.${encodeURIComponent(id)}`, {
+    body: { pet_id: newPetId },
+    prefer: 'return=representation',
+  });
+}
+
+/** PATCH trying to change logged_by — must always be rejected (401/403, 42501), unchanged by
+ *  v1.2 ("who fed them is never editable after the fact"). */
+async function attemptPatchLoggedBy(id, newLoggedBy = 'QA-test-hacked') {
+  return request('PATCH', `?id=eq.${encodeURIComponent(id)}`, {
+    body: { logged_by: newLoggedBy },
+    prefer: 'return=representation',
+  });
+}
+
+/** Correct a feed's time the allowed way (contract.md §6.H) — mirrors api.js's
+ *  updateFeedTime(id, newIso). Used for a real-network full edit cycle when reachable. */
+async function updateFeedTime(id, newIso) {
+  return request('PATCH', `?id=eq.${encodeURIComponent(id)}&deleted_at=is.null`, {
+    body: { created_at: newIso },
     prefer: 'return=representation',
   });
 }
@@ -260,4 +313,9 @@ module.exports = {
   attemptHardDelete,
   attemptPostWithCreatedAt,
   attemptPatchCreatedAt,
+  attemptPatchFutureCreatedAt,
+  attemptPatchPastCreatedAt,
+  attemptPatchPetId,
+  attemptPatchLoggedBy,
+  updateFeedTime,
 };

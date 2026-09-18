@@ -44,13 +44,13 @@ pumo-feed-log/                     (GitHub repo root)
 │   ├── css/styles.css
 │   ├── js/config.js               SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY only (v1.1: per-pet photo/name moved to the `pets` table, contract.md §4)
 │   ├── js/constants.js            exactly contract.md §7.1
-│   ├── js/logic.js                pure functions only (no DOM, no fetch, no storage) — v1.1 adds the day-boundary, heatmap, CSV-formatting and pet-URL functions (§4 below) to this same file, no new module
-│   ├── js/api.js                  the only module that talks to Supabase — v1.1 adds getPets and getAllFeedsForExport (contract.md §6.G, §6.F.2)
+│   ├── js/logic.js                pure functions only (no DOM, no fetch, no storage) — v1.1 adds the day-boundary, heatmap, CSV-formatting and pet-URL functions (§4 below) to this same file, no new module; v1.2 adds computeEditedTimestamp (contract.md §7.11)
+│   ├── js/api.js                  the only module that talks to Supabase — v1.1 adds getPets and getAllFeedsForExport (contract.md §6.G, §6.F.2); v1.2 adds updateFeedTime (contract.md §6.H)
 │   ├── js/storage.js              localStorage name helpers, every access in try/catch
-│   ├── js/ui.js                   shared DOM helpers: status region, focus refresh, row + delete confirm — v1.1 adds the pet-picker and heatmap-cell renderers here too (shared visual vocabulary, not new controllers)
+│   ├── js/ui.js                   shared DOM helpers: status region, focus refresh, row + delete confirm — v1.1 adds the pet-picker and heatmap-cell renderers here too (shared visual vocabulary, not new controllers); v1.2 adds the inline edit-time flow to the shared row component (design.md §3.6b) alongside the existing delete-confirm flow
 │   ├── js/home.js                 home screen controller (button state machine) — v1.1: reads the pet from the URL, renders the picker, scopes all calls to that pet's id
-│   ├── js/history.js              history screen controller — v1.1: same pet-scoping, plus the heatmap and CSV button
-│   └── assets/                    icon.svg, favicon-32.png, apple-touch-icon.png, pumo.jpg (optional; zuumi.jpg / banh-mi.jpg optional, not yet supplied — design.md §8)
+│   ├── js/history.js              history screen controller — v1.1: same pet-scoping, plus the heatmap and CSV button; v1.2: CSV button now renders into the heatmap card's own header node, not a standalone element (§4 below)
+│   └── assets/                    icon.svg, favicon-32.png, apple-touch-icon.png, pumo.jpg, zuumi.jpg, banh-mi.jpg (all 3 pet photos supplied as of v1.2 — design.md §8)
 ├── backend/
 │   └── schema.sql                 the complete Supabase setup SQL (identical to contract.md §2)
 ├── tests/
@@ -71,12 +71,14 @@ All paths inside `frontend/` are **relative** (`css/styles.css`, never `/css/sty
 |---|---|---|
 | `config.js` | The two config values (v1.1: `PUMO_PHOTO_URL` removed — see `pets.photo_url`, contract.md §1) | Contain the secret key or DB password, ever. Contain any pet-specific value. |
 | `constants.js` | Every number and storage key in contract.md §7.1 | Be duplicated as literals anywhere else |
-| `logic.js` | `startOfLocalDay`, `startOfFeedDay`, `feedDayKey`, `formatRelative`, `formatFeedLabel`, `formatDayHeading`, `guardState`, `armedLabel`, `deleteConsequence`, `groupByDay`, `sanitizeName`, `newFeedId`, `buildHeatmap`, `feedsToCsv`, `petSlugFromLocation`, `pathForPet` (contract.md §7.6, §7.8–§7.10) | Touch the DOM, network, clock (`now` is always passed in) or storage |
-| `api.js` | `getPets`, `getHomeData`, `logFeed`, `softDeleteFeed`, `getHistoryPage`, `getAllFeedsForExport`, timeouts, error normalization (contract.md §6 and §8) | Know about UI state. Send `created_at`. Use the HTTP `DELETE` method. Query `feeds` without a `pet_id` filter (except inside `getAllFeedsForExport`'s own already-pet-scoped paging). |
+| `logic.js` | `startOfLocalDay`, `startOfFeedDay`, `feedDayKey`, `formatRelative`, `formatFeedLabel`, `formatDayHeading`, `guardState`, `armedLabel`, `deleteConsequence`, `groupByDay`, `sanitizeName`, `newFeedId`, `buildHeatmap`, `feedsToCsv`, `petSlugFromLocation`, `pathForPet`, `computeEditedTimestamp` (v1.2, contract.md §7.11) | Touch the DOM, network, clock (`now` is always passed in) or storage |
+| `api.js` | `getPets`, `getHomeData`, `logFeed`, `softDeleteFeed`, `getHistoryPage`, `getAllFeedsForExport`, `updateFeedTime` (v1.2, contract.md §6.H), timeouts, error normalization (contract.md §6 and §8) | Know about UI state. Send `created_at` on insert (only `updateFeedTime`'s own PATCH may send it, and only for an existing row). Use the HTTP `DELETE` method. Send `pet_id` or `logged_by` in any PATCH. Query `feeds` without a `pet_id` filter (except inside `getAllFeedsForExport`'s own already-pet-scoped paging). |
 | `storage.js` | `getName`, `setName`, `isNamePromptDone`, `setNamePromptDone` | Store anything about feeds or the selected pet (pet selection is URL-only, contract.md §7.10 — never localStorage) |
-| `ui.js` | `announce(text)`, `onFocusRefresh(cb)` (listens for `visibilitychange`→visible, `focus`, `pageshow`, debounced by `FOCUS_REFRESH_DEBOUNCE_MS`, skipped while a load is in flight), the shared row renderer with inline delete confirmation, error panel and banner, and (v1.1) the pet-picker renderer and the heatmap grid/cell renderer, shared between `home.js` (picker only) and `history.js` (picker + heatmap) | Insert user text with `innerHTML` (always use `textContent`) |
+| `ui.js` | `announce(text)`, `onFocusRefresh(cb)` (listens for `visibilitychange`→visible, `focus`, `pageshow`, debounced by `FOCUS_REFRESH_DEBOUNCE_MS`, skipped while a load is in flight), the shared row renderer with inline delete confirmation **and (v1.2) inline time-edit** (design.md §3.6b — both share the row's single "one open state at a time" controller), error panel and banner, and (v1.1) the pet-picker renderer and the heatmap grid/cell renderer, shared between `home.js` (picker only) and `history.js` (picker + heatmap) | Insert user text with `innerHTML` (always use `textContent`) |
 | `home.js` | Home state, the 30 s tick, the Log button state machine, undo notice, name card, resolving the pet from the URL and rendering the picker (v1.1) | |
 | `history.js` | History state, paging, day groups, the heatmap and CSV export button (v1.1), same pet resolution as `home.js` | |
+
+**Heatmap card DOM shape (v1.2 change).** `#heatmap-card` in `history.html` is no longer a single element that `renderHeatmap()` clears and rebuilds wholesale. It now has two children: a static `.heatmap__header` (holding only the CSV button — never touched by `renderHeatmap`) and a `#heatmap-content` div (everything `renderHeatmap()` clears and rebuilds: legend, weekday row, grid, expanded-day panel — exactly what it rebuilt before, just scoped to this inner node instead of the whole card). `history.js` passes `#heatmap-content` to `renderHeatmap()`, and still toggles `#heatmap-card`'s own `hidden` attribute to show/hide the whole card (header + content together) exactly as before — the CSV button is now hidden/shown along with the heatmap rather than independently, which is an intentional side effect (design.md §4.1/§4.2): it no longer appears before the first page of data has loaded.
 
 ### Home state (in memory only)
 ```

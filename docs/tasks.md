@@ -2,6 +2,8 @@
 
 **v1.1 addendum:** this build adds multi-pet support (F17), the history heatmap (F18) and CSV export (F19) to an already-shipped v1. The team split, ground rules and task numbering below are unchanged from v1 — read them as still current, with the v1.1-tagged additions layered in at Task 1 (schema migration), Task 2 (new UI/logic), Task 3 (new unit tests) and the QA section (new ACs, new screenshots). There is no separate v1.1 team; the same Frontend and QA agents cover the whole current scope, since most of v1's code is being extended in place rather than replaced.
 
+**v1.2 addendum:** three small, unrelated additions to the shipped v1.1 app: real photos for Zuumi and Banh Mi (F20), editing a feed's logged time (F21), and restyling/repositioning the CSV button (F19's AC-19.6). **Unlike v1 and v1.1, the PM applied this round's one-time database change directly** (widening the `created_at` update grant, adding the `feeds_created_at_not_future` check, and updating the 3 pet rows' `photo_url` — all now live on the real Supabase project and reflected in `backend/schema.sql`/contract.md §2) — it was a 3-statement change with no schema redesign, so there was nothing for a build agent to design or decide. Task 1 below is **already done**; the Frontend agent's job starts from the already-migrated database and just needs to build against contract.md §6.H/§7.11 as given. Task 2 and Task 3 get the v1.2-tagged additions below; there is no new Task 1 work and no new agent — same Frontend and QA agents as before.
+
 ## 0. Team, order, ground rules
 
 **Decision: option (a). The Supabase schema and policies are a one-time setup task owned by the frontend agent. There is no separate backend or logic agent.** It's about 25 lines of config SQL applied once plus two copied values, with no server code. A second agent would only add a handoff and a second owner of the same four REST calls, with nothing to do in parallel.
@@ -72,16 +74,17 @@ Build to `architecture.md` §3–§4, `design.md` and `contract.md`:
    - Modules loaded with `<script type="module">`. All paths relative.
    - A `data-app="pumo-feed-log"` attribute on `<body>`.
 2. **`css/styles.css`:** tokens, type, spacing, the button states from design.md §3.4, the reduced-motion overrides, and a single centered column at most 440 px wide.
-3. **`js/constants.js`:** exactly contract.md §7.1 (now includes `FEED_DAY_START_HOUR`, `HEATMAP_WEEKS`, `DEFAULT_PET_SLUG`). **`js/config.js`:** per contract.md §4 — **v1.1: two values only, no `PUMO_PHOTO_URL`** (that's now `pets.photo_url` in the database, seeded by the schema migration in Task 1).
-4. **`js/logic.js`:** every function listed in architecture.md §4, following contract.md §7 to the letter. `now` is always a parameter. **v1.1 additions:** `startOfFeedDay`/`feedDayKey` (§7.6), `buildHeatmap` (§7.8), `feedsToCsv` (§7.9), `petSlugFromLocation`/`pathForPet` (§7.10) — and every existing function that used calendar-day grouping (`groupByDay`, `formatFeedLabel`, `formatDayHeading`) now uses `feedDayKey` instead, per §7.6.
-5. **`js/api.js`:** the operations and error normalization from contract.md §6 and §8. It must never send `created_at` and never use `DELETE`. **v1.1 additions:** `getPets` (§6.G), `getAllFeedsForExport` (§6.F.2); every existing call that touches `feeds` now filters by `pet_id` (§6.A, §6.B, §6.E) and `logFeed`'s body now includes `pet_id` (§6.C).
-6. **`js/storage.js`:** contract.md §9, with every access wrapped in try/catch. **Unchanged by v1.1** — pet selection is URL-only, never localStorage (architecture.md §4's `storage.js` row).
+3. **`js/constants.js`:** exactly contract.md §7.1 (now includes `FEED_DAY_START_HOUR`, `HEATMAP_WEEKS`, `DEFAULT_PET_SLUG`, and **v1.2's `EDIT_FUTURE_GRACE_MS`**). **`js/config.js`:** per contract.md §4 — **v1.1: two values only, no `PUMO_PHOTO_URL`** (that's now `pets.photo_url` in the database, seeded by the schema migration in Task 1).
+4. **`js/logic.js`:** every function listed in architecture.md §4, following contract.md §7 to the letter. `now` is always a parameter. **v1.1 additions:** `startOfFeedDay`/`feedDayKey` (§7.6), `buildHeatmap` (§7.8), `feedsToCsv` (§7.9), `petSlugFromLocation`/`pathForPet` (§7.10) — and every existing function that used calendar-day grouping (`groupByDay`, `formatFeedLabel`, `formatDayHeading`) now uses `feedDayKey` instead, per §7.6. **v1.2 addition:** `computeEditedTimestamp` (§7.11) — pure, field-based (DST-safe, same pattern as `startOfFeedDay`), keeps the original date and only swaps the time-of-day; enforces the future-time grace window client-side (the DB's `feeds_created_at_not_future` check is the backstop, not the primary UX).
+5. **`js/api.js`:** the operations and error normalization from contract.md §6 and §8. It must never send `created_at` on insert, never send `pet_id` or `logged_by` in a PATCH, and never use `DELETE`. **v1.1 additions:** `getPets` (§6.G), `getAllFeedsForExport` (§6.F.2); every existing call that touches `feeds` now filters by `pet_id` (§6.A, §6.B, §6.E) and `logFeed`'s body now includes `pet_id` (§6.C). **v1.2 addition:** `updateFeedTime(id, newIso)` (§6.H) — same idempotent, id-only, `deleted_at=is.null`-filtered PATCH shape as `softDeleteFeed`, resolving `{ alreadyDeleted: true }` on an empty `[]` response.
+6. **`js/storage.js`:** contract.md §9, with every access wrapped in try/catch. **Unchanged by v1.1 and v1.2** — pet selection is URL-only, never localStorage (architecture.md §4's `storage.js` row).
 7. **`js/ui.js`:**
    - The status region.
    - `onFocusRefresh`: `visibilitychange`→visible, `focus`, and `pageshow`, debounced.
    - The shared feed row with inline delete confirmation (design.md §3.6), its focus handling and Escape.
    - Error panel and refresh banner.
    - **v1.1:** the pet-picker renderer (design.md §3.0) and the heatmap grid/cell renderer (design.md §4.1), shared between home.js and history.js per architecture.md §4.
+   - **v1.2:** the inline edit-time flow on the same shared row component (design.md §3.6b) — a new Edit icon button next to Delete, and an `editing`/`saving-edit`/`edit-failed` state machine on the row sharing the module-level "one open row at a time" controller with the existing delete-confirm states. Reuse the delete flow's Cancel/Escape/focus-management pattern rather than writing a parallel one. `renderHeatmap()` now targets `#heatmap-content` (a child of `#heatmap-card`, not the card itself) per architecture.md §4's DOM-shape note, so the CSV button's new `.heatmap__header` survives the heatmap's own re-renders.
 8. **`js/home.js`**
    - The button state machine exactly as in architecture.md §4, with the 6 s arm timeout and the revert on hide.
    - The 30 s tick: relative labels, ready/guarded, and feed-day-boundary detection (3 AM, not midnight — contract.md §7.6) → refresh.
@@ -89,13 +92,15 @@ Build to `architecture.md` §3–§4, `design.md` and `contract.md`:
    - The name card and footer (design.md §3.7).
    - All the states in design.md §6 (S1–S8, S13, S14).
    - **v1.1:** resolve the pet from the URL (`petSlugFromLocation` + `getPets`) before the first render, render the picker (design.md §3.0), and scope every `api.js` call to that pet's id.
-9. **`js/history.js`:** day groups with counts, paging with "Show older feeds", delete confirmation, a focus refresh that reloads the first page and drops the older pages, and states S9–S13. **v1.1:** the same pet resolution as home.js; the heatmap (design.md §4.1, states S16) built from the loaded feeds via `buildHeatmap`; the Download CSV button (design.md §4.2, states S15) calling `getAllFeedsForExport` + `feedsToCsv` and triggering a client-side download.
+   - **v1.2:** wire the recent list's rows to `api.updateFeedTime` via the new edit flow in `ui.js`; a successful edit triggers the same full `render()` (not a partial patch) that a delete already does, so the counter/headline/recent-list stay consistent (states S17–S19).
+9. **`js/history.js`:** day groups with counts, paging with "Show older feeds", delete confirmation, a focus refresh that reloads the first page and drops the older pages, and states S9–S13. **v1.1:** the same pet resolution as home.js; the heatmap (design.md §4.1, states S16) built from the loaded feeds via `buildHeatmap`; the Download CSV button (design.md §4.2, states S15) calling `getAllFeedsForExport` + `feedsToCsv` and triggering a client-side download. **v1.2:** the day-grouped list's rows get the same edit flow as home's recent list (states S17–S19); the CSV button moves into `#heatmap-card`'s new `.heatmap__header` (design.md §4.1/§4.2) — restyled `.btn--text`, short "CSV" label, unchanged `aria-label` and busy-state behavior, and its `hidden` toggling now follows `#heatmap-card`'s own (architecture.md §4's DOM-shape note) instead of being set independently.
 10. **Self-review checks:**
     - `grep` finds no `innerHTML` assignments that include feed or name data.
     - No `'DELETE'` string anywhere in `frontend/js`.
-    - No `created_at` in any request body.
+    - No `created_at` in any insert request body; no `pet_id` or `logged_by` in any PATCH body.
     - No number literals that duplicate constants.
     - **v1.1:** no `PUMO_PHOTO_URL` or other pet-specific literal anywhere in `frontend/js` (grep for `pumo`/`zuumi`/`banh` outside of `constants.js`'s `DEFAULT_PET_SLUG` and test files turns up nothing hardcoded — pet data always comes from `getPets()`). Every `feeds` query in `api.js` includes a `pet_id=eq.` filter except `getPets` itself (which queries `pets`, not `feeds`).
+    - **v1.2:** the Edit and Delete icon buttons are each independently keyboard-reachable with distinct `aria-label`s; re-verify AC-2.3a's 375×553 budget with both icons present in a row (design.md §3.1's note).
 
 ### Task 3: Unit tests (`tests/unit/logic.test.mjs`, run with `node --test tests/unit`)
 The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at least:
@@ -129,12 +134,19 @@ The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at le
 - **`petSlugFromLocation` / `pathForPet` (v1.1, contract.md §7.10):**
   - No `?pet=` param, an empty one, and an unrecognized slug all resolve to `DEFAULT_PET_SLUG`.
   - `pathForPet(DEFAULT_PET_SLUG)` returns the bare page name with no query string; any other slug returns `{page}?pet={slug}`.
+- **`computeEditedTimestamp` (v1.2, contract.md §7.11):**
+  - A valid past-today time returns `{ ok: true, iso, unchanged: false }` with the original calendar date preserved (assert the date fields, not just that it parses).
+  - The exact original time round-trips to `{ unchanged: true }`.
+  - A time more than `EDIT_FUTURE_GRACE_MS` past `now` on today's date returns `{ ok: false, reason: 'future' }`; a time within the grace window (e.g. 2 minutes ahead) is accepted.
+  - An empty string and a malformed value (not matching `HH:MM`) both return `{ ok: false, reason: 'invalid' }`.
+  - 2026-03-08 and 2026-11-01 in `America/Los_Angeles` (the DST transition days): editing a feed originally logged on one of those dates to a new time still lands on the same calendar date, field-based construction (no raw millisecond math).
 
 ### Task 4: Assets (design.md §8)
 - Hand-write `frontend/assets/icon.svg`.
 - Generate `apple-touch-icon.png` (180×180, opaque) and `favicon-32.png` from it. Use whichever is available: Playwright/Chromium screenshot, `rsvg-convert`, ImageMagick, or Python PIL with cairosvg.
 - If `docs/assets/icon.png` exists, generate both PNGs from it instead, keeping `icon.svg` as the favicon and avatar fallback.
 - If `docs/assets/pumo.jpg` exists: center-crop to a square, resize to 256×256, **strip EXIF**, keep it under 100 KB, and save to `frontend/assets/pumo.jpg`.
+- **v1.2, already done by the PM, nothing to build here:** `frontend/assets/zuumi.jpg` and `frontend/assets/banh-mi.jpg` exist (176×176, matching `pumo.jpg`'s own dimensions) and `pets.photo_url` is already set for all 3 rows on the live database. Confirm both files are present in the repo and that `getPets()` returns real paths for all 3 pets during preflight — don't regenerate or re-crop them.
 
 ### Task 5: Deploy
 1. Write the current ISO timestamp to `frontend/build.txt`. Commit with a clear message and push to `main`.
@@ -147,8 +159,8 @@ The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at le
 5. Soft-delete all `Build-test` rows with a PATCH filtered by `logged_by=eq.Build-test&deleted_at=is.null`.
 
 ### Done means (all checkable)
-- [ ] `backend/schema.sql` is byte-identical to the SQL in contract.md §2, and all 8 preflight calls (v1.1: was 6) returned the expected codes (outputs in the hand-off).
-- [ ] `node --test tests/unit` passes under `TZ=America/Los_Angeles` and `TZ=UTC`, including the v1.1 cases (Task 3).
+- [ ] `backend/schema.sql` is byte-identical to the SQL in contract.md §2, and all preflight calls (v1.1: 8; **v1.2: re-run against the already-migrated live DB, plus the two new must-fail rows for a future `created_at` and a `pet_id`/`logged_by` PATCH**) returned the expected codes (outputs in the hand-off).
+- [ ] `node --test tests/unit` passes under `TZ=America/Los_Angeles` and `TZ=UTC`, including the v1.1 and v1.2 cases (Task 3).
 - [ ] `LIVE_URL/build.txt` (or the agreed fallback URL) matches the final commit.
 - [ ] In two separate Playwright browser contexts at 390×844: tapping Log a feed in context A shows "Logged" within 1 s, and reloading context B shows the feed at the top of Recent. Repeat this once for a non-default pet (`?pet=zuumi`) to confirm scoping isn't accidentally shared across pets.
 - [ ] A feed 1h 55m old (browser clock moved forward) arms on the first tap. One 2h 05m old logs on the first tap.
@@ -156,6 +168,7 @@ The suite must pass with both `TZ=America/Los_Angeles` and `TZ=UTC`. Cover at le
 - [ ] The Task 2 step 10 grep checks are clean.
 - [ ] No `Build-test` rows remain undeleted.
 - [ ] **v1.1:** the pet picker, heatmap and CSV button all render and work for all 3 pets; switching pets never shows another pet's data even briefly during the navigation.
+- [ ] **v1.2:** Zuumi's and Banh Mi's picker avatars show their real photos (not the placeholder). Editing a feed's time works on both home and history, updates the counter/heading/heatmap within 1 s, rejects a future time client-side, and handles a concurrently-deleted target gracefully. The CSV button renders inside the heatmap card's header, top-right, in its new subtle style, and still functions identically otherwise.
 - [ ] The hand-off to QA includes: LIVE_URL (or fallback URL), build.txt value, preflight outputs, each pet's URL (architecture.md §10), and Build notes (any judgment calls made — flag the AC-18.5/AC-19.4 "frontend agent's call" items from spec.md explicitly here).
 
 ---
@@ -169,7 +182,7 @@ Independently prove, on the real Supabase project and the real deploy, that ever
 `tests/e2e/`, `tests/screenshots/`, `tests/qa-report.md`. It **does not edit** `frontend/` or `backend/`. Defects go back to the frontend agent.
 
 ### Responsible for
-Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **and v1.1's AC-17.1–19.5**), reviewing that the **[UNIT]** tests exist and pass, and writing the **[DATHAN]** checklist (**v1.1 adds AC-17.8**, programming Zuumi's and Banh Mi's stickers).
+Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **v1.1's AC-17.1–19.5, and v1.2's AC-19.6, AC-20.1–20.2, AC-21.1–21.8**), reviewing that the **[UNIT]** tests exist and pass, and writing the **[DATHAN]** checklist (**v1.1 adds AC-17.8**, programming Zuumi's and Banh Mi's stickers; v1.2 adds none — F20/F21 are fully verifiable by QA, no real-phone-only step).
 
 ### Setup
 - **Tooling:** Playwright with Chromium and `@axe-core/playwright`, installed under `tests/e2e/` (its own `package.json` there is fine).
@@ -195,6 +208,7 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **and v1.
   - For S1 and S10 (zero feeds): if live rows exist that aren't test rows, don't touch them. Intercept the GETs to return `[]` instead, and note that in the report.
   - For AC-12.3, create 101 `QA-test` rows by REST POST (all for one pet — Pumo is fine), then soft-delete them.
   - **v1.1:** every `QA-test` row must include a valid `pet_id` (insert will 400 without one — the column is `not null`). For AC-18's heatmap ACs, seed a small, deliberate spread of `QA-test` rows across several of the last `HEATMAP_WEEKS` weeks (including at least one day at each tier: 0, 1, 2, 3, 4+) for one pet, so the heatmap has real structure to screenshot and assert against, then soft-delete them after.
+  - **v1.2:** the DB now allows `PATCH .../feeds` to set `created_at` (contract.md §1/§3) — direct-REST test rows created for editing scenarios must still be cleaned up the same way (soft-delete by `logged_by=eq.QA-test`), since editing a row's time doesn't change how it's found and deleted. For AC-21.4's future-time rejection, use a REST PATCH directly (not just through the UI) to also confirm the `feeds_created_at_not_future` DB constraint itself fires (contract.md §6's must-fail table) — this is one of the "calls that must fail" checks, not only a UI-level assertion.
 
 ### What to verify
 1. **Every [QA] criterion, in spec.md order.** For each, record PASS, FAIL or BLOCKED, the evidence (screenshot names, script name and line) and notes.
@@ -225,6 +239,9 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **and v1.
   - **v1.1:** heatmap on history, light and dark, with a visible spread of tiers (per the seeded QA-test data above), plus one screenshot of an expanded day cell
   - **v1.1:** Download CSV button resting, in-flight ("Preparing…"), and failed (S15) states
   - **v1.1:** a feed logged between midnight and 3 AM, showing "Yesterday, {time}" on home and in its history day group (AC-8.5)
+  - **v1.2:** pet picker showing Zuumi's and Banh Mi's real photos (no more placeholder), on home
+  - **v1.2:** the edit-time flow open (input pre-filled) and its future-time-rejected error, on a home row and a history row; edit-failed and "this feed was deleted" states
+  - **v1.2:** the restyled/repositioned CSV button in the heatmap card's header, resting and in-flight, light and dark
 
 ### `tests/qa-report.md` structure
 1. Header: tested URL, `build.txt` value, date and time, Supabase project ref (from the URL), browsers and devices, time zones used.
@@ -241,12 +258,13 @@ Verifying every **[QA]** criterion in spec.md (AC-1.3 through AC-16.6, **and v1.
 7. Test data: confirmation that all `QA-test` rows are soft-deleted, plus the optional cleanup SQL from architecture.md §9.
 
 ### Done means
-- [ ] Every [QA] criterion in spec.md has a result backed by evidence, **including AC-17.1–19.5 (v1.1)**. None are left untested.
-- [ ] Every design.md §6 state has a screenshot, and the minimum screenshot set exists (**including the v1.1 additions above**).
+- [ ] Every [QA] criterion in spec.md has a result backed by evidence, **including AC-17.1–19.5 (v1.1) and AC-19.6/AC-20.1–20.2/AC-21.1–21.8 (v1.2)**. None are left untested.
+- [ ] Every design.md §6 state has a screenshot, and the minimum screenshot set exists (**including the v1.1 and v1.2 additions above**).
 - [ ] axe results are recorded and there are no serious or critical violations (or they're filed as FAIL), **checked on at least one non-Pumo pet's home screen too, not only Pumo's**.
-- [ ] `tests/qa-report.md` is committed, with the DATHAN checklist included (**including AC-17.8, sticker programming for Zuumi and Banh Mi**).
+- [ ] `tests/qa-report.md` is committed, with the DATHAN checklist included (**including AC-17.8, sticker programming for Zuumi and Banh Mi** — v1.2 adds nothing to this checklist).
 - [ ] No live `QA-test` rows remain, for any of the 3 pets.
 - [ ] The CSV export was actually downloaded once during testing and its contents checked against the known seeded rows (right header, right row count, right values) — not just that the button didn't error.
+- [ ] **v1.2:** at least one full edit-time cycle was verified end to end against the real database (open editor → change time → Save → confirm the row, counter, day-grouping and heatmap all updated), on both home and history, for at least one non-default pet. The DB-level future-time rejection (`23514`) was confirmed via a direct REST call, not only through the UI.
 
 ---
 

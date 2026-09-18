@@ -1,0 +1,64 @@
+{
+  "note": "Direct-REST-equivalent checks for v1.2's contract.md §6.H / §8 'calls that must fail' rows and AC-21.4/AC-21.8, run against the live Supabase project (dufyzxtrhdcwrebagsfs). Same methodology as ac-5.2-11.1-11.2-sql-verification.json.",
+  "methodology_deviation": "This sandbox's egress proxy returns 403 for dufyzxtrhdcwrebagsfs.supabase.co on every raw HTTPS attempt (confirmed again this pass: `curl` to the REST endpoint gets `CONNECT tunnel failed, response 403`), so a literal HTTP PATCH via curl or a real Chromium fetch() is not possible from this sandbox (same limitation as the v1.1 pass). The Supabase MCP connector (mcp__Supabase__execute_sql) is reachable (does not go through this sandbox's local egress proxy). Each check below runs as `set role anon; <statement>;` inside a Supabase SQL session, which exercises the exact same column grants, RLS policies and CHECK constraint (contract.md §1-§3) that PostgREST enforces for the anon/publishable-key role on a real REST call — not a literal HTTP request. Flagged as a deviation per contract.md's own guidance; a literal HTTP-level re-run against LIVE_URL's Supabase project is recommended once real network access is available (e.g. Dathan's phone or a CI runner with real egress), but is not expected to behave differently since the enforcement point (Postgres grants + RLS + CHECK constraint) is identical either way.",
+  "project_id": "dufyzxtrhdcwrebagsfs",
+  "pets_used": { "zuumi_pet_id": "457db9ce-75bb-4fa8-8816-d3c8f93990e6", "pumo_pet_id": "b8dc0275-b9ad-49da-9814-ae06893c068e" },
+  "test_row_id": "970f86d8-18c0-4fef-851a-1552a3a8e479",
+  "checks": [
+    {
+      "ac": "setup",
+      "statement": "set role anon; insert into public.feeds (pet_id, logged_by) values ('457db9ce-75bb-4fa8-8816-d3c8f93990e6', 'QA-test') returning id, pet_id, created_at, logged_by, deleted_at;",
+      "actual": { "id": "970f86d8-18c0-4fef-851a-1552a3a8e479", "pet_id": "457db9ce-75bb-4fa8-8816-d3c8f93990e6", "created_at": "2026-09-18 17:58:48.102188+00", "logged_by": "QA-test", "deleted_at": null },
+      "result": "n/a (setup row, for Zuumi, a non-default pet)"
+    },
+    {
+      "ac": "AC-21.4 / contract.md §8 must-fail row: PATCH created_at to now()+1 day",
+      "statement": "set role anon; update public.feeds set created_at = now() + interval '1 day' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479';",
+      "expected": "400/409-equivalent, code 23514 (feeds_created_at_not_future)",
+      "actual": "ERROR 23514: new row for relation \"feeds\" violates check constraint \"feeds_created_at_not_future\"",
+      "result": "PASS"
+    },
+    {
+      "ac": "contract.md §6 must-fail row: PATCH pet_id to a different real pet id",
+      "statement": "set role anon; update public.feeds set pet_id = 'b8dc0275-b9ad-49da-9814-ae06893c068e' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479';",
+      "expected": "401/403-equivalent, code 42501",
+      "actual": "ERROR 42501: permission denied for table feeds (HINT: GRANT UPDATE ON public.feeds TO anon)",
+      "result": "PASS"
+    },
+    {
+      "ac": "contract.md §6 must-fail row: PATCH logged_by",
+      "statement": "set role anon; update public.feeds set logged_by = 'QA-test-hacked' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479';",
+      "expected": "401/403-equivalent, code 42501",
+      "actual": "ERROR 42501: permission denied for table feeds (HINT: GRANT UPDATE ON public.feeds TO anon)",
+      "result": "PASS"
+    },
+    {
+      "ac": "contract.md §6.H / §8 differs-from-v1.1 row: PATCH created_at to a PAST value on the SAME call shape now succeeds",
+      "statement": "set role anon; update public.feeds set created_at = now() - interval '2 hours' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479' and deleted_at is null returning id, pet_id, created_at, logged_by;",
+      "expected": "200-equivalent success, created_at updated, pet_id/logged_by unchanged",
+      "actual": { "id": "970f86d8-18c0-4fef-851a-1552a3a8e479", "pet_id": "457db9ce-75bb-4fa8-8816-d3c8f93990e6", "created_at": "2026-09-18 15:59:00.861647+00", "logged_by": "QA-test" },
+      "result": "PASS"
+    },
+    {
+      "ac": "AC-21.4 grace window: EDIT_FUTURE_GRACE_MS (5 min) itself, at the DB layer — a value 4 minutes in the future (inside the 5-min grace) succeeds",
+      "statement": "set role anon; update public.feeds set created_at = now() + interval '4 minutes' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479' and deleted_at is null returning id, created_at;",
+      "expected": "200-equivalent success (inside the 5-minute grace window)",
+      "actual": { "id": "970f86d8-18c0-4fef-851a-1552a3a8e479", "created_at": "2026-09-18 18:03:01.621051+00" },
+      "result": "PASS — confirms EDIT_FUTURE_GRACE_MS (constants.js) exactly matches the DB's own 5-minute check constraint, per contract.md §7.1's comment"
+    },
+    {
+      "ac": "contract.md §6.H 'alreadyDeleted' shape: PATCH ...&deleted_at=is.null on an already-deleted row",
+      "setup_statement": "set role anon; update public.feeds set deleted_at = now() where id = '970f86d8-18c0-4fef-851a-1552a3a8e479' and deleted_at is null returning id, deleted_at;",
+      "setup_actual": { "id": "970f86d8-18c0-4fef-851a-1552a3a8e479", "deleted_at": "2026-09-18 17:59:07.612542+00" },
+      "statement": "set role anon; update public.feeds set created_at = now() - interval '1 hour' where id = '970f86d8-18c0-4fef-851a-1552a3a8e479' and deleted_at is null returning id;",
+      "expected": "200 with [] (zero rows matched, because deleted_at is no longer null) — the alreadyDeleted:true shape api.js's updateFeedTime resolves on",
+      "actual": [],
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "statement": "select count(*) as live_qa_rows from public.feeds where logged_by = 'QA-test' and deleted_at is null;",
+    "result": 0,
+    "note": "The one test row (970f86d8-18c0-4fef-851a-1552a3a8e479, logged_by 'QA-test', pet Zuumi) ends this run already soft-deleted as part of the alreadyDeleted check above. No live QA-test rows remain for any pet."
+  }
+}

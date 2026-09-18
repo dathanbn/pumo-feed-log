@@ -259,6 +259,18 @@ test.describe('F19 — CSV export', () => {
   }) => {
     await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })]);
     await gotoHistory(page, 'pumo');
+    const btn = csvDownloadButton(page, 'Pumo');
+    // v1.2 (architecture.md §4's "Heatmap card DOM shape" note): #csv-button now lives inside
+    // #heatmap-card and hides/shows WITH it, so it isn't clickable until the first page has
+    // actually finished loading. Wait for that first, THEN register the failing route — doing
+    // it the other way around (registering the 503 route immediately after gotoHistory, before
+    // the app's own initial fetch has necessarily fired) risks the 503 racing the very FIRST
+    // load itself, which would leave the card (and the button inside it) hidden forever and
+    // time out the click below. This is a v1.2 DOM-shape consequence for the test's own
+    // sequencing, not a frontend defect (v1.1's independent, always-rendered CSV button had no
+    // such race).
+    await expect(btn).toBeVisible({ timeout: 10000 });
+
     // Fail every GET after the first page loads, so getAllFeedsForExport's paging fails
     // partway through (contract.md §6.F.2: "On any page failing ... partial results are
     // discarded").
@@ -268,14 +280,16 @@ test.describe('F19 — CSV export', () => {
     page.on('download', () => {
       downloadFired = true;
     });
-    const btn = csvDownloadButton(page, 'Pumo');
     await btn.click();
 
     // design.md S15: "Couldn't prepare the download." with Retry, OR (frontend agent's
     // documented call) a persistent line under the button — check the build notes
     // (tests/qa-report.md §5) for which was chosen once known.
     await expect(csvExportFailedText(page)).toBeVisible({ timeout: 10000 });
-    await expect(btn).toHaveText(/Download CSV/, { timeout: 5000 }); // back to normal, not stuck "Preparing…"
+    // v1.2 (design.md §4.2): the visible label shortened to just "CSV" (was "Download CSV" in
+    // v1.1) — the fuller wording lives only in the aria-label now (checked separately, AC-19.6).
+    await expect(btn).toHaveText(/CSV/, { timeout: 5000 }); // back to normal, not stuck "Preparing…"
+    await expect(btn).not.toHaveText(/Preparing/);
     await expect(btn).toBeEnabled();
     expect(downloadFired, 'no partial file should ever download on a failed export').toBe(false);
     await shot(page, { n: 19, screen: 'history', state: 'csv-failed', scheme: 'light' });
@@ -306,5 +320,112 @@ test.describe('F19 — CSV export', () => {
       await page.keyboard.press('Tab');
     }
     expect(found, 'Download CSV button should be reachable via Tab').toBe(true);
+  });
+
+  // -----------------------------------------------------------------------------------------
+  // v1.2, AC-19.6 (contract.md's "v1.2 change note", design.md §4.1/§4.2, architecture.md §4's
+  // "Heatmap card DOM shape (v1.2 change)" note): the button moved off its own full-width row
+  // under <h1> into the heatmap card's own top-right header, restyled subtle (.btn--text),
+  // with a short "CSV" visible label — but its aria-label, busy-state behavior and keyboard
+  // reachability (already covered by AC-19.5 above) are unchanged.
+  // -----------------------------------------------------------------------------------------
+
+  test('AC-19.6a — the button now lives inside #heatmap-card\'s .heatmap__header, top-right, styled .btn--text', async ({
+    page,
+  }) => {
+    await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })]);
+    await gotoHistory(page, 'pumo');
+    const btn = csvDownloadButton(page, 'Pumo');
+    await expect(btn).toBeVisible();
+
+    // Architecture.md §4's documented DOM shape: #csv-button lives inside .heatmap__header,
+    // itself inside #heatmap-card (a child, not the whole card) — not its own full-width row
+    // directly under <h1> any more (that was the v1.1 shape).
+    const header = page.locator('.heatmap__header');
+    await expect(header).toBeVisible();
+    const isInsideHeader = await btn.evaluate((el, headerEl) => headerEl.contains(el), await header.elementHandle());
+    expect(isInsideHeader, '#csv-button must be a descendant of .heatmap__header').toBe(true);
+    const card = page.locator('#heatmap-card');
+    const headerInsideCard = await header.evaluate((el, cardEl) => cardEl.contains(el), await card.elementHandle());
+    expect(headerInsideCard, '.heatmap__header must be a descendant of #heatmap-card').toBe(true);
+
+    // Restyled to the app's existing subtle .btn--text variant (design.md §4.2), not the
+    // v1.1 outlined full-width style.
+    await expect(btn).toHaveClass(/btn--text/);
+    await expect(btn).not.toHaveClass(/btn--outline/);
+    await expect(btn).not.toHaveClass(/btn--full/);
+
+    // Right-aligned within its header row: the header's own flex box should place the button
+    // flush to the header's right edge (design.md's "right-aligned"), not stretched full width.
+    const headerBox = await header.boundingBox();
+    const btnBox = await btn.boundingBox();
+    expect(btnBox.width, 'the compact CSV button must not stretch to the header\'s full width').toBeLessThan(headerBox.width * 0.6);
+    expect(btnBox.x + btnBox.width, 'the button should sit at (or very near) the header\'s right edge').toBeGreaterThan(
+      headerBox.x + headerBox.width - 8
+    );
+
+    // Short visible label "CSV" (design.md §4.2: shortened from "Download CSV"), while the
+    // aria-label still carries the fuller wording unchanged from v1.1 (AC-19.5).
+    await expect(btn).toHaveText(/^\s*CSV\s*$/);
+    await expect(btn).not.toHaveText(/Download CSV/);
+    await expect(btn).toHaveAttribute('aria-label', "Download Pumo's feed history as CSV");
+  });
+
+  test('AC-19.6b — busy state (icon->spinner, "Preparing…", disabled) and keyboard reachability are unchanged by the restyle/move', async ({
+    page,
+  }) => {
+    await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })], { delayMs: 1500 });
+    await gotoHistory(page, 'pumo');
+    const btn = csvDownloadButton(page, 'Pumo');
+    await expect(btn).toBeVisible({ timeout: 10000 });
+
+    // Slow every subsequent GET (the export's own paging) so the busy state holds long enough
+    // to assert against.
+    await net.addLatency(page, 2000, { urlPattern: `${SUPABASE_URL}/rest/v1/feeds**`, methodFilter: 'GET' });
+    await btn.click();
+    await expect(btn).toHaveText(/Preparing…/, { timeout: 3000 });
+    await expect(btn).toBeDisabled();
+    // aria-label is unchanged even mid-flight (design.md §4.2: "the aria-label ... unchanged
+    // from v1.1" — AC-19.6's own "unchanged accessible name" requirement).
+    await expect(btn).toHaveAttribute('aria-label', "Download Pumo's feed history as CSV");
+    // Screenshot of this exact state (resting/preparing, light/dark) is AC-19.6d's job below,
+    // to avoid two tests racing to write the same filename.
+  });
+
+  test('AC-19.6c — the button hides/shows WITH the heatmap card, not independently (architecture.md §4)', async ({
+    page,
+  }) => {
+    // Before the first page has loaded (or on a pet-load error), the whole card — CSV button
+    // included — is hidden. This is an intentional v1.2 behavior CHANGE from v1.1 (where the
+    // button was its own element, rendered independently of the heatmap's own load state) —
+    // not a bug. Slow the very first GET so the loading state is observable.
+    await mockHistoryFirstPage(page, [fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' })], { delayMs: 1500 });
+    await gotoHistory(page, 'pumo');
+    const card = page.locator('#heatmap-card');
+    const btn = csvDownloadButton(page, 'Pumo');
+    // Still loading: the card (and therefore the button nested inside it) must be hidden.
+    await expect(card).toBeHidden();
+    await expect(btn).toBeHidden();
+
+    // Once the first page resolves, the card (and the button) become visible together.
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await expect(btn).toBeVisible();
+  });
+
+  test('AC-19.6d — resting and in-flight, light and dark (screenshot set)', async ({ page }) => {
+    await mockHistoryFirstPage(page, [
+      fakeFeed({ agoMs: MS.minutes(5), petSlug: 'pumo' }),
+      fakeFeed({ agoMs: MS.hours(3), petSlug: 'pumo', loggedBy: 'Alex' }),
+    ]);
+    await gotoHistory(page, 'pumo');
+    const btn = csvDownloadButton(page, 'Pumo');
+    await expect(btn).toBeVisible();
+    const scheme = await page.evaluate(() => (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    await shot(page, { n: 19, screen: 'history', state: 'csv-header-resting', scheme });
+
+    await net.addLatency(page, 2000, { urlPattern: `${SUPABASE_URL}/rest/v1/feeds**`, methodFilter: 'GET' });
+    await btn.click();
+    await expect(btn).toHaveText(/Preparing…/, { timeout: 3000 });
+    await shot(page, { n: 19, screen: 'history', state: 'csv-header-preparing', scheme });
   });
 });

@@ -16,6 +16,7 @@ export const NAME_MAX_LENGTH = 20;
 export const PAUSED_HINT_AFTER_FAILURES = 2;
 export const HEATMAP_WEEKS = 5;                         // weeks of calendar shown, including the current partial week
 export const DEFAULT_PET_SLUG = 'pumo';                 // home pet when the URL names no pet, or names an unknown one
+export const EDIT_FUTURE_GRACE_MS = 5 * 60 * 1000;      // v1.2: matches the DB's feeds_created_at_not_future check exactly
 export const STORAGE_KEYS = Object.freeze({
   loggerName: 'pumo.loggerName',
   namePromptDone: 'pumo.namePromptDone', // '1' after Save or Skip

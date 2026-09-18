@@ -73,10 +73,19 @@ const QA_LOGGED_BY = 'QA-test';
 // which fetch-and-cache from GET /rest/v1/pets. This list exists for iterating slugs, building
 // URLs (helpers/app.js) and populating mocked `pets` responses (helpers/mock.js) before the
 // schema exists at all.
+//
+// v1.2 (F20, contract.md §2's backfill, AC-20.1/20.2): Zuumi and Banh Mi now have real photos
+// on the live database too — photo_url is no longer null for either. This fixture is updated
+// to match, since it's meant to mirror real seed data and most specs' default mockPetRows()
+// (helpers/mock.js) should reflect production, not the pre-v1.2 placeholder-only state. A test
+// that specifically needs the PLACEHOLDER code path (e.g. specs/17-pets.spec.js AC-17.6, which
+// per AC-20.1's own note is now only exercised by a hypothetical 4th pet, never today's real
+// three) passes its own `overrides` to mockPetRows()/mockPets() to force photo_url: null rather
+// than relying on this default.
 const PETS = Object.freeze([
   Object.freeze({ slug: 'pumo', name: 'Pumo', species: 'cat', sort_order: 0, photo_url: 'assets/pumo.jpg' }),
-  Object.freeze({ slug: 'zuumi', name: 'Zuumi', species: 'cat', sort_order: 1, photo_url: null }),
-  Object.freeze({ slug: 'banh-mi', name: 'Banh Mi', species: 'dog', sort_order: 2, photo_url: null }),
+  Object.freeze({ slug: 'zuumi', name: 'Zuumi', species: 'cat', sort_order: 1, photo_url: 'assets/zuumi.jpg' }),
+  Object.freeze({ slug: 'banh-mi', name: 'Banh Mi', species: 'dog', sort_order: 2, photo_url: 'assets/banh-mi.jpg' }),
 ]);
 const PET_SLUGS = Object.freeze(PETS.map((p) => p.slug));
 const DEFAULT_PET_SLUG = 'pumo';

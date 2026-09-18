@@ -3,13 +3,20 @@
 // Never assigns feed or name data through innerHTML — always textContent. (architecture.md §4)
 
 import { FOCUS_REFRESH_DEBOUNCE_MS } from './constants.js';
-import { formatTime, formatFeedLabel, deleteAriaLabel, pathForPet } from './logic.js';
+import { formatTime, formatFeedLabel, deleteAriaLabel, editAriaLabel, pathForPet, computeEditedTimestamp } from './logic.js';
 
 // ---- Icons -----------------------------------------------------------------
 // Static, trusted, hand-written SVG markup only. Never combined with feed or user data.
 const ICONS = {
   trash:
     '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>',
+  // v1.2: the row's Edit control, next to trash — same viewBox/stroke conventions as trash above.
+  pencil:
+    '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4.5L15.5 5l3.5 3.5L8.5 19 4 20z"/><path d="M13.5 6.5l3.5 3.5"/></svg>',
+  // v1.2: the restyled CSV button's download-arrow icon (design.md §4.2) — same viewBox/stroke
+  // conventions as trash above, sized down to sit inline with the button's short "CSV" label.
+  download:
+    '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7.5 11l4.5 4.5 4.5-4.5"/><path d="M5 20h14"/></svg>',
   warning:
     '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.5L18 17H2z"/><path d="M10 8v4"/><circle cx="10" cy="14.3" r="0.6" fill="currentColor" stroke="none"/></svg>',
   check:
@@ -27,7 +34,7 @@ const ICONS = {
 /**
  * A static, trusted icon wrapped in an aria-hidden span. `name` must be a key of ICONS —
  * this never receives feed or user-supplied text.
- * @param {'trash'|'warning'|'check'|'chevron'|'spinner'|'paw'} name
+ * @param {'trash'|'pencil'|'download'|'warning'|'check'|'chevron'|'spinner'|'paw'} name
  * @param {string} [extraClass]
  * @returns {HTMLElement}
  */
@@ -50,7 +57,7 @@ export const COPY = {
   historyEmpty: 'No feeds logged yet.',
   olderPageError: "Couldn't load older feeds.",
   refreshBannerPrefix: "Couldn't refresh. Showing feeds as of ",
-  csvButtonLabel: 'Download CSV',
+  csvButtonLabel: 'CSV', // v1.2: shortened visible label — the full wording moved to the aria-label
   csvPreparing: 'Preparing…',
   csvFailed: "Couldn't prepare the download.",
   heatmapLegend: ['0', '1', '2', '3', '4+'],
@@ -129,11 +136,22 @@ export function onFocusRefresh(cb) {
 
 // ---- Shared feed row, with inline delete confirmation (design.md §3.6) ---------------------
 
-/** Tracks the single row allowed to be confirming at a time (AC-10.5). */
+/** Tracks the single row allowed to be confirming/editing at a time (AC-10.5, AC-21.2). */
 let openRowController = null;
 
 /**
- * Builds a <li> feed row with an inline Delete control and confirmation flow.
+ * Local time, as an `<input type="time">` element's `.value` ("HH:MM", 24-hour, zero-padded).
+ * @param {Date} date
+ * @returns {string}
+ */
+function timeInputValue(date) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * Builds a <li> feed row with inline Edit and Delete controls, each with their own inline
+ * confirmation/editor flow (design.md §3.6, §3.6b) sharing the single "one open row at a time"
+ * controller (AC-10.5, AC-21.2).
  * @param {object} opts
  * @param {{id: string, created_at: string, logged_by: string|null}} opts.feed
  * @param {Date} opts.now - for label formatting
@@ -141,16 +159,23 @@ let openRowController = null;
  * @param {() => string} opts.getConsequence - computes the delete-confirmation sentence on open
  * @param {(id: string) => Promise<{alreadyDeleted: boolean}>} opts.onConfirmDelete - performs the
  *   soft delete (and, on success, the caller's own refresh — this component doesn't refresh itself)
- * @param {() => void} [opts.onFocusFallback] - called after a successful delete to move focus
- *   somewhere sane, when the caller doesn't handle it via its own refresh-driven re-render
+ * @param {(id: string, newIso: string) => Promise<object|{alreadyDeleted: true}>} opts.onConfirmEdit
+ *   - performs the time PATCH (contract.md §6.H). On a normal success the caller re-renders the
+ *   whole list itself (the same full render() path already used after a delete), so this
+ *   component doesn't need to do anything further; on `{alreadyDeleted: true}` the caller does
+ *   NOT re-render synchronously (so the row's own "This feed was deleted." message is actually
+ *   visible for a beat) and this component shows that message locally instead.
  * @returns {{ element: HTMLLIElement, closeConfirm: () => void }}
  */
-export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDelete }) {
+export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDelete, onConfirmEdit }) {
   const li = document.createElement('li');
   li.className = 'row';
 
-  /** @type {'normal'|'confirming'|'deleting'|'failed'} */
+  /** @type {'normal'|'confirming'|'deleting'|'failed'|'editing'|'saving-edit'|'edit-failed'|'edit-deleted'} */
   let state = 'normal';
+  let editValue = ''; // the time input's current value, set fresh on open and kept across re-renders
+  let editFutureRejected = false; // whether to show "Can't set a future time." above the buttons
+  let pendingIso = null; // the last validated candidate iso, resent by Retry after a save failure
 
   const controller = {
     close() {
@@ -161,6 +186,7 @@ export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDe
     },
   };
 
+  // ---- Delete flow (design.md §3.6) -----------------------------------------------------------
   function open() {
     if (openRowController && openRowController !== controller) {
       openRowController.close();
@@ -190,16 +216,104 @@ export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDe
     }
   }
 
+  // ---- Edit-time flow (design.md §3.6b, v1.2) -------------------------------------------------
+  function openEdit() {
+    if (openRowController && openRowController !== controller) {
+      openRowController.close();
+    }
+    openRowController = controller;
+    state = 'editing';
+    editValue = timeInputValue(new Date(feed.created_at));
+    editFutureRejected = false;
+    pendingIso = null;
+    render();
+  }
+
+  function cancelEdit() {
+    state = 'normal';
+    if (openRowController === controller) openRowController = null;
+    render();
+    const btn = li.querySelector('.row__edit');
+    if (btn) btn.focus();
+  }
+
+  async function trySaveEdit() {
+    state = 'saving-edit';
+    render();
+    try {
+      const outcome = await onConfirmEdit(feed.id, pendingIso);
+      if (outcome && outcome.alreadyDeleted) {
+        // Deliberately no caller-side re-render here (see this function's own doc comment) —
+        // show the message locally; the caller's own follow-up refresh drops this row shortly.
+        state = 'edit-deleted';
+        render();
+      }
+      // Otherwise: the caller already re-rendered the whole list with the corrected feed (the
+      // same full render() path already used after a delete) — this row instance is discarded.
+    } catch {
+      state = 'edit-failed';
+      render();
+    }
+  }
+
+  function confirmEdit() {
+    const input = li.querySelector('.row__edit-input');
+    const timeValue = input ? input.value : editValue;
+    editValue = timeValue;
+    // Minute-granularity no-op guard, ahead of computeEditedTimestamp: a real `created_at`
+    // always carries seconds/microseconds, so that function's own (correct, ms-exact)
+    // `unchanged` check can practically never match an <input type="time"> value (which only
+    // ever carries HH:MM) — left uncaught, tapping Save with no real change would still PATCH
+    // and silently rewind the feed to :00 seconds. Comparing at the same HH:MM granularity the
+    // input itself uses is what actually makes a true no-op Save skip the network call.
+    if (timeValue === timeInputValue(new Date(feed.created_at))) {
+      cancelEdit();
+      return;
+    }
+    const result = computeEditedTimestamp(feed.created_at, timeValue, new Date());
+    if (!result.ok) {
+      // 'invalid' should be unreachable in normal use (the browser's own time input validates
+      // this) — treat it like any other blocked Save: stay open, no network call, no message.
+      if (result.reason === 'future') {
+        editFutureRejected = true;
+        render();
+      }
+      return;
+    }
+    if (result.unchanged) {
+      // Kept as a defensive fallback (contract.md §7.11's own ms-exact check) — the guard above
+      // is what actually catches this in practice, but this still closes cleanly if it's ever hit.
+      cancelEdit();
+      return;
+    }
+    editFutureRejected = false;
+    pendingIso = result.iso;
+    trySaveEdit();
+  }
+
   function onKeydown(e) {
-    if (e.key === 'Escape' && (state === 'confirming' || state === 'failed')) {
+    if (e.key !== 'Escape') return;
+    if (state === 'confirming' || state === 'failed') {
       e.preventDefault();
       cancel();
+    } else if (state === 'editing' || state === 'edit-failed') {
+      e.preventDefault();
+      cancelEdit();
     }
   }
 
   function render() {
     li.textContent = '';
-    li.classList.toggle('row--confirm', state !== 'normal');
+    li.classList.remove('row--confirm', 'row--edit-open');
+    // D6: marks this row as "actively open" so a caller's background refresh (home.js/
+    // history.js) can tell not to rebuild the list out from under an in-progress interaction.
+    // Deliberately excludes 'edit-deleted' — that terminal message is meant to be safely
+    // replaced by the next refresh, not to block one indefinitely.
+    if (state === 'normal' || state === 'edit-deleted') {
+      li.removeAttribute('data-row-open');
+    } else {
+      li.setAttribute('data-row-open', 'true');
+    }
 
     if (state === 'normal') {
       const info = document.createElement('div');
@@ -218,6 +332,16 @@ export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDe
 
       info.append(line1, line2);
 
+      const actions = document.createElement('div');
+      actions.className = 'row__actions';
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'row__edit';
+      editBtn.setAttribute('aria-label', editAriaLabel(feed, now));
+      editBtn.appendChild(icon('pencil'));
+      editBtn.addEventListener('click', openEdit);
+
       const deleteBtn = document.createElement('button');
       deleteBtn.type = 'button';
       deleteBtn.className = 'row__delete';
@@ -225,9 +349,97 @@ export function createFeedRow({ feed, now, timeOnly, getConsequence, onConfirmDe
       deleteBtn.appendChild(icon('trash'));
       deleteBtn.addEventListener('click', open);
 
-      li.append(info, deleteBtn);
+      actions.append(editBtn, deleteBtn);
+      li.append(info, actions);
       return;
     }
+
+    if (state === 'editing' || state === 'saving-edit') {
+      li.classList.add('row--edit-open');
+
+      const label = document.createElement('label');
+      label.className = 'row__edit-label';
+      label.textContent = 'Edit time';
+      const inputId = `edit-time-${feed.id}`;
+      label.setAttribute('for', inputId);
+      li.appendChild(label);
+
+      const input = document.createElement('input');
+      input.type = 'time';
+      input.id = inputId;
+      input.className = 'row__edit-input';
+      input.value = editValue;
+      input.disabled = state === 'saving-edit';
+      li.appendChild(input);
+
+      if (editFutureRejected) {
+        const err = document.createElement('p');
+        err.className = 'row__confirm-text row__confirm-text--warn';
+        err.textContent = "Can't set a future time.";
+        li.appendChild(err);
+      }
+
+      if (state === 'saving-edit') {
+        const status = document.createElement('p');
+        status.className = 'row__deleting';
+        status.textContent = 'Saving…';
+        li.appendChild(status);
+        return;
+      }
+
+      const buttons = document.createElement('div');
+      buttons.className = 'row__confirm-buttons';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn--outline';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', cancelEdit);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'btn btn--accent';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', confirmEdit);
+
+      buttons.append(cancelBtn, saveBtn);
+      li.appendChild(buttons);
+      input.focus();
+      return;
+    }
+
+    if (state === 'edit-failed' || state === 'edit-deleted') {
+      li.classList.add('row--confirm');
+
+      const text = document.createElement('p');
+      text.className = 'row__confirm-text row__confirm-text--warn';
+      text.textContent = state === 'edit-deleted' ? 'This feed was deleted.' : "Couldn't save.";
+      li.appendChild(text);
+
+      if (state === 'edit-deleted') return; // terminal message, no buttons
+
+      const buttons = document.createElement('div');
+      buttons.className = 'row__confirm-buttons';
+
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'btn btn--warn-outline';
+      retryBtn.textContent = 'Retry';
+      retryBtn.addEventListener('click', trySaveEdit);
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn--outline';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', cancelEdit);
+
+      buttons.append(retryBtn, cancelBtn);
+      li.appendChild(buttons);
+      return;
+    }
+
+    // Delete flow: 'confirming' | 'deleting' | 'failed'.
+    li.classList.add('row--confirm');
 
     const text = document.createElement('p');
     text.className = 'row__confirm-text';

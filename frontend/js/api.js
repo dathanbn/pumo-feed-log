@@ -181,6 +181,33 @@ export async function softDeleteFeed(id) {
 }
 
 /**
+ * Corrects a feed's logged time (v1.2). Same idempotent, id-only PATCH shape as
+ * `softDeleteFeed` — a feed's id is already globally unique, so this never needs `pet_id`
+ * either. `newIso` always comes from `computeEditedTimestamp` (logic.js §7.11), never a raw,
+ * unvalidated input value. Never sends `pet_id` or `logged_by`. (contract.md §6.H)
+ * @param {string} id
+ * @param {string} newIso
+ * @returns {Promise<{id: string, pet_id: string, created_at: string, logged_by: string|null, deleted_at: string|null} | {alreadyDeleted: true}>}
+ */
+export async function updateFeedTime(id, newIso) {
+  const url = `${FEEDS_URL}?id=eq.${encodeURIComponent(id)}&deleted_at=is.null`;
+  const response = await rawFetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...BASE_HEADERS,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify({ created_at: newIso }),
+  });
+
+  if (!response.ok) await throwHttpError(response);
+  const rows = await response.json();
+  if (rows.length === 0) return { alreadyDeleted: true };
+  return rows[0];
+}
+
+/**
  * One page of history for `petId`, newest first. (contract.md §6.E)
  * @param {{petId: string, before?: string}} opts - `before` is the created_at of the oldest feed loaded so far
  * @returns {Promise<{feeds: Array, hasMore: boolean}>}

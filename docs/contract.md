@@ -4,6 +4,8 @@ Everything in the app depends on this one interface: **the `public.pets` and `pu
 
 **v1.1 change note:** v1 shipped with one pet and a midnight day boundary. v1.1 adds `public.pets`, a `pet_id` column on `feeds`, and moves the day boundary to 3 AM local time. Every table, constant and function below is the **current**, post-v1.1 contract — there is no separate "v1 contract" to reconcile against.
 
+**v1.2 change note:** Zuumi and Banh Mi now have real photos (no schema change — `photo_url` already supported this). Two new things: the client can now correct a feed's logged time (widens the `created_at` update grant, adds a DB-level "not in the future" check — §6.H, §7.11), and the CSV button moves into the heatmap card's header, restyled as a subtle text button (design.md §4.2 — no contract change, UI only).
+
 ## 1. The tables
 
 ### `public.pets`
@@ -23,7 +25,7 @@ The client never inserts, updates or deletes pets. The 3 rows are seeded once by
 |---|---|---|---|---|---|
 | `id` | `uuid` | no (PK) | `gen_random_uuid()` | The phone generates it (see §6.C). The default is a safety net. | Feed identity, and what makes retries safe |
 | `pet_id` | `uuid` | no (FK → `pets.id`) | — | The phone, on insert only | Which pet this feed is for |
-| `created_at` | `timestamptz` | no | `now()` | **The server only.** Anon can't write it. | When the feed happened |
+| `created_at` | `timestamptz` | no | `now()` | The server, at insert. **Anon may `UPDATE` it after insert (v1.2)** to correct a mistaken time — see §6.H — but never `INSERT` it. A DB check (`feeds_created_at_not_future`) rejects any value more than 5 minutes in the future either way. | When the feed happened |
 | `logged_by` | `text` | yes | `null` | The phone, on insert only | Display name from that phone's localStorage, or `null` ("Someone") |
 | `deleted_at` | `timestamptz` | yes | `null` | The phone, on undo or delete | `null` means a live feed. Non-null means soft-deleted. The value is informational. |
 
@@ -52,9 +54,16 @@ comment on table public.pets is
 insert into public.pets (slug, name, species, sort_order, photo_url)
 values
   ('pumo', 'Pumo', 'cat', 0, 'assets/pumo.jpg'),
-  ('zuumi', 'Zuumi', 'cat', 1, null),
-  ('banh-mi', 'Banh Mi', 'dog', 2, null)
+  ('zuumi', 'Zuumi', 'cat', 1, 'assets/zuumi.jpg'),
+  ('banh-mi', 'Banh Mi', 'dog', 2, 'assets/banh-mi.jpg')
 on conflict (slug) do nothing;
+
+-- v1.2: Zuumi and Banh Mi got real photos after the initial seed above (which is why the insert
+-- has "do nothing" on conflict and doesn't retroactively fix already-seeded rows). Re-running this
+-- file on a fresh project is fine — the insert already has the right URLs. On an existing project
+-- that seeded them as null, this one-time backfill catches it up:
+update public.pets set photo_url = 'assets/zuumi.jpg' where slug = 'zuumi' and photo_url is null;
+update public.pets set photo_url = 'assets/banh-mi.jpg' where slug = 'banh-mi' and photo_url is null;
 
 alter table public.pets enable row level security;
 revoke all on table public.pets from anon, authenticated;
@@ -76,6 +85,14 @@ create table if not exists public.feeds (
 comment on table public.feeds is
   'Pumo Feed Log. One row per feed, one pet per row. Soft delete only: deleted_at not null means deleted.';
 
+-- v1.2: created_at can now be corrected by the client (a fixed-time edit, not just server-set at
+-- insert). This DB-level backstop keeps it from ever landing in the future even via a direct API
+-- call, bypassing the app's own "no future time" validation. 5 min covers normal clock skew.
+alter table public.feeds drop constraint if exists feeds_created_at_not_future;
+alter table public.feeds
+  add constraint feeds_created_at_not_future
+  check (created_at <= now() + interval '5 minutes');
+
 -- Add pet_id if this is a migration from v1 (nullable at first, so the ALTER never fails on existing rows).
 alter table public.feeds add column if not exists pet_id uuid references public.pets(id);
 
@@ -94,9 +111,10 @@ alter table public.feeds enable row level security;
 revoke all on table public.feeds from anon, authenticated;
 grant usage on schema public to anon;
 grant select on table public.feeds to anon;                          -- anyone with the link can read
-grant insert (id, pet_id, logged_by) on table public.feeds to anon;  -- created_at is always the server's now()
-grant update (deleted_at) on table public.feeds to anon;             -- the only edit allowed is soft delete
+grant insert (id, pet_id, logged_by) on table public.feeds to anon;  -- created_at is always the server's now() at insert time
+grant update (deleted_at, created_at) on table public.feeds to anon; -- soft delete, and (v1.2) correcting a feed's logged time
 -- Deliberately no DELETE grant: rows can never be hard-deleted through the API.
+-- Deliberately no update grant on pet_id or logged_by: which pet and who fed them are never editable.
 
 -- Permissive RLS policies for the anon role.
 drop policy if exists feeds_anon_select on public.feeds;
@@ -121,7 +139,9 @@ create index if not exists feeds_pet_id_created_at_idx on public.feeds (pet_id, 
 | Insert a feed with `id`, `pet_id` and/or `logged_by` | Yes | Column grant plus the insert policy |
 | Insert a feed that sets `created_at` or `deleted_at` | **No** (401/403, `42501`) | Column grant |
 | Update `deleted_at` (set or clear) | Yes | Column grant plus the update policy |
-| Update `id`, `pet_id`, `created_at` or `logged_by` on `feeds` | **No** (401/403, `42501`) | Column grant |
+| Update `created_at` to a valid time, on a still-live row (v1.2) | Yes | Column grant plus the update policy |
+| Update `created_at` to more than 5 minutes in the future | **No** (400/409, `23514`) | `feeds_created_at_not_future` check constraint |
+| Update `id`, `pet_id` or `logged_by` on `feeds` | **No** (401/403, `42501`) | Column grant |
 | Insert, update or delete on `pets` | **No** (401/403, `42501`) | No grant and no policy — the pet list is fixed |
 | `DELETE` on `feeds` | **No** (401/403, `42501`) | No grant and no policy |
 
@@ -170,7 +190,7 @@ The JS types used throughout the app:
 
 ## 6. Operations
 
-`api.js` exports exactly these seven functions. Every one of them either resolves with the shape shown or throws an `ApiError` (§8). Every operation below except G is **scoped to one `petId`** — there is no "all pets" query anywhere in the live UI (CSV export in §6.F.2 is the one deliberate exception, and it's client-side pagination over the same per-pet endpoint, not a new query shape).
+`api.js` exports exactly these eight functions. Every one of them either resolves with the shape shown or throws an `ApiError` (§8). Every operation below except G is **scoped to one `petId`** — there is no "all pets" query anywhere in the live UI (CSV export in §6.F.2 is the one deliberate exception, and it's client-side pagination over the same per-pet endpoint, not a new query shape).
 
 ### G. Get the pet list: `getPets()`
 ```
@@ -241,6 +261,22 @@ Prefer: return=representation
 - The app **never** uses the HTTP `DELETE` method.
 - Unchanged by v1.1: it takes only `id`, never `pet_id` — a feed's id is already globally unique.
 
+### H. Correct a feed's time: `updateFeedTime(id, newIso)` (v1.2)
+Same idempotent, id-only shape as D — a feed's id is already globally unique, so this never needs `pet_id` either.
+```
+PATCH {SUPABASE_URL}/rest/v1/feeds?id=eq.5f0c3a7e-2b1d-4c1e-9a4f-7d2e8b6c1a90&deleted_at=is.null
+apikey: {key}
+Content-Type: application/json
+Prefer: return=representation
+
+{"created_at":"2026-09-16T13:05:00.000Z"}
+```
+- **`200` with `[ {row with created_at updated} ]`:** resolve with the updated `Feed`.
+- **`200` with `[]`:** the feed was deleted (by any phone) before this saved, or the id doesn't exist. Resolve `{ alreadyDeleted: true }` — same shape and meaning as D's `alreadyDeleted`. The UI shows "This feed was deleted." (design.md §3.6b) instead of applying the edit, and refreshes.
+- **`400`/`409` with `code: "23514"`:** the DB rejected a `created_at` more than 5 minutes in the future (§1, §3). This should never happen in normal use, because §7.11's `computeEditedTimestamp` already refuses to build a future timestamp client-side — treat it as an `ApiError` like any other unexpected failure (§8), not a special UI case.
+- `newIso` always comes from `computeEditedTimestamp` (§7.11), never a raw, unvalidated input value.
+- The app never lets someone edit `pet_id` or `logged_by` — only the timestamp. There is no server-side way to move a feed to a different pet or attribute it to a different feeder; that's still delete-and-relog.
+
 ### E. History page: `getHistoryPage({ petId, before })`
 First page:
 ```
@@ -263,7 +299,9 @@ Resolves to `{ "feeds": [ /* Feed, newest first */ ], "hasMore": true }`, where 
 |---|---|
 | `DELETE {SUPABASE_URL}/rest/v1/feeds?id=eq.{id}` | 401 or 403, `code: "42501"`, and the row still exists |
 | `POST /rest/v1/feeds` body `{"pet_id":"{a real pet id}","logged_by":"QA-test","created_at":"2020-01-01T00:00:00Z"}` | 401 or 403, `code: "42501"` |
-| `PATCH /rest/v1/feeds?id=eq.{id}` body `{"created_at":"2020-01-01T00:00:00Z"}` | 401 or 403, `code: "42501"` |
+| `PATCH /rest/v1/feeds?id=eq.{id}` body `{"pet_id":"{a different real pet id}"}` | 401 or 403, `code: "42501"` — which pet a feed belongs to is never editable |
+| `PATCH /rest/v1/feeds?id=eq.{id}` body `{"logged_by":"QA-test"}` | 401 or 403, `code: "42501"` — who fed them is never editable after the fact |
+| `PATCH /rest/v1/feeds?id=eq.{id}` body `{"created_at":"{now + 1 day, ISO}"}` | 400 or 409, `code: "23514"` (the `feeds_created_at_not_future` check) — **this one now differs from v1.1**: a *past* `created_at` on this same call succeeds (§6.H); only a future one is rejected |
 | `POST /rest/v1/pets` body `{"slug":"test","name":"Test","species":"cat","sort_order":9}` | 401 or 403, `code: "42501"` — the pet list is read-only from the client |
 
 ## 7. Shared constants and rules
@@ -288,6 +326,7 @@ export const NAME_MAX_LENGTH = 20;
 export const PAUSED_HINT_AFTER_FAILURES = 2;
 export const HEATMAP_WEEKS = 5;                         // weeks of calendar shown, including the current partial week
 export const DEFAULT_PET_SLUG = 'pumo';                 // home pet when the URL names no pet, or names an unknown one
+export const EDIT_FUTURE_GRACE_MS = 5 * 60 * 1000;      // v1.2: matches the DB's feeds_created_at_not_future check exactly
 export const STORAGE_KEYS = Object.freeze({
   loggerName: 'pumo.loggerName',
   namePromptDone: 'pumo.namePromptDone', // '1' after Save or Skip
@@ -404,6 +443,25 @@ pathForPet(slug, page = 'index.html'): slug === DEFAULT_PET_SLUG -> `{page}` (no
 ```
 Every in-app link that changes or preserves the pet (the picker, and history.html's back-link) is built with `pathForPet`, never a hand-written string, so the query param is never dropped or duplicated. See design.md §3.0 and architecture.md §10 for where this is used and why the default pet gets no query string (its NFC tag stays the same short URL households already have programmed).
 
+### 7.11 Editing a feed's time: `computeEditedTimestamp(originalIso, timeValue, now)` (v1.2)
+Pure function, no DOM, no network. Backs the inline time editor (design.md §3.6b) that opens from the new edit icon next to the row's delete icon (both home's recent rows and history's day-grouped rows — the same shared `createFeedRow` component, contract.md's UI is architecture.md §4's concern, not this file's).
+
+- `timeValue` is a `<input type="time">` element's `.value`: either `''` or a valid 24-hour `"HH:MM"` string. The browser itself refuses to produce anything else, but treat `''` (cleared field) as invalid too.
+- **The edited feed keeps its original calendar date** (the local `Y`/`M`/`D` of `new Date(originalIso)`) — only the time-of-day changes. Moving a feed to a *different date* is out of scope (delete and re-log instead); this keeps the picker a single, unambiguous `<input type="time">` rather than a date+time combo.
+```
+computeEditedTimestamp(originalIso, timeValue, now):
+  if timeValue doesn't match /^\d{2}:\d{2}$/: return { ok: false, reason: 'invalid' }
+  original = new Date(originalIso)
+  [h, m] = timeValue.split(':').map(Number)
+  candidate = new Date(original.getFullYear(), original.getMonth(), original.getDate(), h, m, 0, 0)  // field-based, DST-safe — same pattern as §7.6
+  if candidate.getTime() > now.getTime() + EDIT_FUTURE_GRACE_MS: return { ok: false, reason: 'future' }
+  return { ok: true, iso: candidate.toISOString(), unchanged: candidate.getTime() === original.getTime() }
+```
+- `reason: 'invalid'` should be unreachable in normal use (the browser's own time input validates this) — if it ever happens, treat it like any other blocked Save, no network call.
+- `reason: 'future'` is the one a person can actually trigger (picking a time later than now on today's date). Design.md §3.6b's inline message covers it.
+- `unchanged: true` means Save can skip the network call entirely and just close the editor — no PATCH needed for a no-op edit.
+- Note the boundary here is the **now/future check**, not the 3 AM feed-day boundary: editing a feed's time can deliberately move it across a feed day (e.g. 11:58 PM → 12:15 AM shifts it into the *next* feed day if that's also before 3 AM the *following* morning — no, more precisely: since the date field never changes, the only way an edit changes which feed day a row falls in is by crossing the 3 AM line within that same fixed calendar date, e.g. 2:50 AM → 3:10 AM on the same date moves it from the previous feed day into that date's own feed day). This is intentional and needs no special handling — `feedDayKey`, the counter, the day-grouped headings and the heatmap all derive live from `created_at` on every render, exactly as they already do after any delete or undo (architecture.md §4).
+
 ## 8. Error cases
 
 `api.js` turns every failure into `ApiError { kind, status?, code?, message }`:
@@ -423,6 +481,8 @@ For `http`, parse the JSON body (`{code, message, details, hint}`) when there is
 | **Network failure on first load** | Error panel (design S3), button "Try again" | Error panel (design S11) | Try again repeats the load |
 | **Network failure on a focus or retry refresh with data on screen** | Keep the data and show the refresh banner (design S4) | Keep the list and show the same banner | Retry. The 60 s freshness rule still applies to logging. |
 | **Network failure on undo or delete** | Undo notice or row in its failed state | Row in its failed state | Retry sends the same PATCH again, which is idempotent |
+| **Network failure on a time edit (v1.2)** | Row in its edit-failed state (design.md §3.6b) | Same | Retry sends the same PATCH again, which is idempotent |
+| **Time edit's target feed was deleted first (v1.2)** | Not an error (`alreadyDeleted: true`, §6.H). Row shows "This feed was deleted." and refreshes. | Same | n/a |
 | **Supabase project paused or unreachable** | Looks like `network`, `timeout` or `http` 5xx. Show the paused hint once `consecutiveFailures >= PAUSED_HINT_AFTER_FAILURES` while online. | Same | Dathan unpauses the project in the dashboard (architecture.md §9). The app recovers on the next retry or focus. |
 | **Setup mistake** (401/403 `42501` on normal calls, or 404 `PGRST205`/`42P01`) | Shown to users as the generic unreachable error. The full body goes to the console. | Same | A build defect: QA marks it FAIL and the fix is re-running §2 |
 | **Soft delete returns `[]`** | Not an error. Refresh. | Same | n/a |

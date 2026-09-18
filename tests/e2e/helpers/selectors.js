@@ -63,6 +63,47 @@ function rowDeleteButtonFor(page, dayAndTime, byWhom) {
   });
 }
 
+// ---------------------------------------------------------------------------------------------
+// v1.2: Row inline time editor (design.md §3.6b, contract.md §6.H/§7.11, spec.md F21)
+// ---------------------------------------------------------------------------------------------
+
+// Row Edit (icon) button: design.md §7 exact aria-label pattern (same shape as Delete's own)
+// `Edit feed from {day and time}, by {name or Someone}` (frontend/js/logic.js editAriaLabel).
+function rowEditButton(page) {
+  return page.getByRole('button', { name: /^Edit feed from .+, by .+$/ });
+}
+function rowEditButtonFor(page, dayAndTime, byWhom) {
+  const escaped = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.getByRole('button', {
+    name: new RegExp(`^Edit feed from ${escaped(dayAndTime)}, by ${escaped(byWhom)}$`),
+  });
+}
+// The <label>"Edit time"</label> + native <input type="time"> the editor opens (design.md
+// §3.6b). Scope to a specific row/container when more than one row could be open (there
+// shouldn't be, since AC-21.2/AC-10.5 share the single "one open row at a time" rule, but a
+// scoped call is still the safer default for a test that already has a row locator in hand).
+function editTimeInput(scope) {
+  return scope.getByLabel('Edit time');
+}
+function editSaveButton(scope) {
+  return scope.getByRole('button', { name: 'Save', exact: true });
+}
+function editCancelButton(scope) {
+  return scope.getByRole('button', { name: 'Cancel', exact: true });
+}
+function editFutureRejectedText(scope) {
+  return scope.getByText("Can't set a future time.");
+}
+function editFailedText(scope) {
+  return scope.getByText("Couldn't save.");
+}
+function editRetryButton(scope) {
+  return scope.getByRole('button', { name: 'Retry', exact: true });
+}
+function editDeletedText(scope) {
+  return scope.getByText('This feed was deleted.');
+}
+
 // Delete confirmation (design.md §3.6): Cancel / Delete buttons, scoped to a row/container.
 // exact: true matters here — without it, name: 'Delete' also substring-matches the row's
 // icon-only delete button, whose aria-label is "Delete feed from {time}, by {name}" (it
@@ -346,4 +387,14 @@ module.exports = {
   heatmapExpandedPanelCloseButton,
   csvDownloadButton,
   csvExportFailedText,
+  // v1.2
+  rowEditButton,
+  rowEditButtonFor,
+  editTimeInput,
+  editSaveButton,
+  editCancelButton,
+  editFutureRejectedText,
+  editFailedText,
+  editRetryButton,
+  editDeletedText,
 };

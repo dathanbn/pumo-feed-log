@@ -18,7 +18,7 @@ const {
   undoNoticeRegion,
   selectedPetAvatarLink,
 } = require('../helpers/selectors');
-const { mockHomeData, mockHomeDataDynamic, mockPets, mockHistoryFirstPage, mockSuccessfulWrites, fakeFeed } = require('../helpers/mock');
+const { mockHomeData, mockHomeDataDynamic, mockHomeDataAndWrites, mockPets, mockHistoryFirstPage, mockSuccessfulWrites, fakeFeed } = require('../helpers/mock');
 const net = require('../helpers/network');
 const { scanForSeriousViolations, summarizeViolations, assertTapTarget } = require('../helpers/a11y');
 const { shot } = require('../helpers/screenshot');
@@ -527,16 +527,18 @@ test.describe('F16 — Look and feel', () => {
 
     await assertTapTarget(rowDeleteButton(page).first(), { minW: 44, minH: 44 });
 
-    const postPromise = page.waitForResponse(
-      (res) => res.request().method() === 'POST' && res.url().includes('/rest/v1/feeds')
-    );
-    await mockHomeDataDynamic(page, () => ({ recent: [], todayCount: 0 }));
+    // Mocked GET+POST in one registration (mock.js's own note on why: a plain
+    // mockHomeDataDynamic + a real POST would send the log to the real, network-blocked
+    // Supabase host in this sandbox and page.waitForResponse would then hang to the 45s test
+    // timeout waiting for a response that never arrives — this test only cares about the Undo
+    // button's tap-target size, not a real DB round trip, so mockHomeDataAndWrites keeps it
+    // fully client-side).
+    await mockHomeDataAndWrites(page, { recent: [], todayCount: 0 });
     await gotoHome(page);
     await logButton(page).click();
-    const row = (await postPromise.then((r) => r.json()))[0];
     const undoBtn = undoNoticeRegion(page).filter({ hasText: /^Logged / }).getByRole('button', { name: 'Undo' });
     await assertTapTarget(undoBtn, { minW: 44, minH: 44 });
-    await rest.softDeleteById(row.id);
+    // No rest.softDeleteById here: the log above was served by the mock, never a real row.
 
     await gotoHome(page);
     if (await nameInput(page).isVisible().catch(() => false)) {
